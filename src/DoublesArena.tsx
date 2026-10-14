@@ -273,13 +273,15 @@ export default function DoublesArena({onBack}:{onBack:()=>void}) {
     const visualPlayers: { x:number;y:number }[] = [];
     const walkCycles = [0,0,0,0];
     const walkSteps = [0,0,0,0];
+    let bufferedSwing: { lob:boolean; smash:boolean; until:number } | null = null;
     const move=(p:Player,i:number,k:Keys,dt:number)=>{
       const dx=Number(k.right)-Number(k.left),dy=Number(k.down)-Number(k.up);
       const norm=Math.hypot(dx,dy)||1;
       p.dash=Math.max(0,p.dash-dt);p.flash=Math.max(0,p.flash-dt*2.6);
       p.cool=Math.max(0,p.cool-dt);p.swing=Math.max(0,p.swing-dt);
-      const speed= k.dash && p.dash===0 ? 550:310;
-      if(k.dash&&p.dash===0)p.dash=1.5;
+      // Sustained running while the body is moving fast, not only one frame.
+      const speed=k.dash ? 470 : 310;
+      if(k.dash)p.dash=.15;
       p.x=clamp(p.x+dx/norm*speed*dt,TEAM(i)===0?LEFT+33:NET_X+33,TEAM(i)===0?NET_X-33:RIGHT-33);
       p.y=clamp(p.y+dy/norm*speed*dt,TOP+33,BOTTOM-33);
     };
@@ -337,13 +339,20 @@ export default function DoublesArena({onBack}:{onBack:()=>void}) {
       if(mySeat>=0 && mySeat<=3 && w.phase!=='lobby'&&w.phase!=='ended'){
         move(w.players[mySeat],mySeat,k,dt);
         const hit=k.hit||k.lob||k.smash;
-        if(hit&&!swingHold.current){
-          if(mySeat===0){strike(0,k.lob,k.smash);}else{
-            strike(mySeat,k.lob,k.smash);send({type:'d_input',x:w.players[mySeat].x,y:w.players[mySeat].y,swing:true,lob:k.lob,smash:k.smash});
+        if(hit&&!swingHold.current)bufferedSwing={lob:k.lob,smash:k.smash,until:performance.now()+300};
+        swingHold.current=hit;
+        if(bufferedSwing){
+          if(performance.now()>bufferedSwing.until || w.phase!=='play')bufferedSwing=null;
+          else {
+            const previousLast=w.ball.lastTeam;
+            strike(mySeat,bufferedSwing.lob,bufferedSwing.smash);
+            if(w.ball.lastTeam!==previousLast){
+              if(mySeat!==0)send({type:'d_input',x:w.players[mySeat].x,y:w.players[mySeat].y,swing:true,lob:bufferedSwing.lob,smash:bufferedSwing.smash});
+              bufferedSwing=null;
+            }
           }
         }
-        swingHold.current=hit;
-      } else swingHold.current=false;
+      } else {swingHold.current=false;bufferedSwing=null;}
       const authoritative=isPractice.current || (online.current && playerSeat.current===0);
       if(!authoritative)return;
       if(isPractice.current)bots(dt,god.current);

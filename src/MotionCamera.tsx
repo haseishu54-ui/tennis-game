@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-export type MotionKeys = { left: boolean; right: boolean; up: boolean; down: boolean; jump: boolean; hit: boolean; lob: boolean; dash: boolean };
-const NONE: MotionKeys = { left: false, right: false, up: false, down: false, jump: false, hit: false, lob: false, dash: false };
+import { createMotionState, detectMotion, NO_MOTION, type MotionKeys, type MotionSensitivity } from './motionDetection';
+export type { MotionKeys } from './motionDetection';
+const NONE = NO_MOTION;
 const MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 const WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm';
 const MODULE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm';
-
-type Landmark = { x: number; y: number; visibility?: number };
 
 type Props = { onKeys: (keys: MotionKeys) => void; compact?: boolean };
 
@@ -17,13 +15,18 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
   const pose = useRef<any>(null);
   const raf = useRef(0);
   const running = useRef(false);
-  const center = useRef<number | null>(null);
-  const baseShoulder = useRef<number | null>(null);
+  const motionState = useRef(createMotionState());
   const runToken = useRef(0);
-  const prevWrists = useRef<[Landmark, Landmark] | null>(null);
-  const lastSwing = useRef(0);
   const lastFrame = useRef(0);
+  const lastVideoTime = useRef(-1);
   const motionFrames = useRef<ImageData | null>(null);
+  const basicCanvas = useRef<HTMLCanvasElement | null>(null);
+  const basicDebounce = useRef(0);
+  const lastSwing = useRef(0);
+  const [sensitivity,setSensitivity] = useState<MotionSensitivity>('high');
+  const sensitivityRef = useRef<MotionSensitivity>('high');
+  const [reverse,setReverse] = useState(false);
+  const reverseRef = useRef(false);
   const onKeysRef = useRef(onKeys);
   const [detected, setDetected] = useState<MotionKeys>(NONE);
   const lastDisplay = useRef(0);
@@ -43,53 +46,41 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
     }
   };
 
-  const analyzePose = (points: Landmark[], now: number) => {
-    const leftShoulder = points[11], rightShoulder = points[12];
-    const leftWrist = points[15], rightWrist = points[16];
-    const leftHip = points[23], rightHip = points[24];
-    if (![leftShoulder,rightShoulder,leftWrist,rightWrist,leftHip,rightHip].every(Boolean)) return emit(NONE);
-    if (Math.min(leftShoulder.visibility ?? 1, rightShoulder.visibility ?? 1) < .35) return emit(NONE);
-    const x = (leftShoulder.x + rightShoulder.x + leftHip.x + rightHip.x) / 4;
-    if (center.current === null) center.current = x;
-    const delta = x - center.current;
-    const shoulderWidth = Math.abs(leftShoulder.x-rightShoulder.x);
-    if (baseShoulder.current === null) baseShoulder.current = shoulderWidth || .2;
-    const depthRatio = shoulderWidth / Math.max(.05,baseShoulder.current);
-    const upHands = leftWrist.y < leftShoulder.y - .13 && rightWrist.y < rightShoulder.y - .13;
-    const jumping = (leftWrist.y < leftShoulder.y - .17 || rightWrist.y < rightShoulder.y - .17);
-    // Estimate wrist velocity to recognize a real swing, not a held arm position.
-    const prev = prevWrists.current;
-    const velocity = prev ? Math.max(Math.hypot(leftWrist.x-prev[0].x, leftWrist.y-prev[0].y),
-      Math.hypot(rightWrist.x-prev[1].x, rightWrist.y-prev[1].y)) : 0;
-    const swing = velocity > .047 && now - lastSwing.current > 370;
-    if (swing) lastSwing.current = now;
-    prevWrists.current = [leftWrist, rightWrist];
-    emit({left:delta > .085,right:delta < -.085,up:depthRatio>1.26,down:depthRatio<.78,jump:jumping && !upHands,
-      hit:swing && !upHands,lob:swing && upHands,dash:Math.abs(delta)>.23});
+  const analyzePose = (points: Parameters<typeof detectMotion>[0], now: number) => {
+    emit(detectMotion(points, now, motionState.current, sensitivityRef.current, reverseRef.current));
   };
 
   // Simplified movement detection used if pose model assets are blocked. No data leaves the browser.
   const analyzeBasic = (now: number) => {
     const v = video.current;
     if (!v || v.readyState < 2) return;
-    let c = document.createElement('canvas'); c.width = 40; c.height = 30;
-    const cx = c.getContext('2d', { willReadFrequently: true });
-    if (!cx) return;
-    cx.drawImage(v,0,0,40,30);
-    const frame = cx.getImageData(0,0,40,30);
-    const previous = motionFrames.current;
-    motionFrames.current = frame;
-    if (!previous) return;
-    let l = 0, r = 0;
-    for (let y=3; y<26; y++) for (let x=0; x<40; x++) {
-      const a=(y*40+x)*4;
+    // Keep a single small canvas instead of allocating one on every camera frame.
+    if(!basicCanvas.current) {basicCanvas.current=document.createElement('canvas');basicCanvas.current.width=56;basicCanvas.current.height=42;}
+    const cx=basicCanvas.current.getContext('2d',{willReadFrequently:true});
+    if(!cx)return;
+    cx.drawImage(v,0,0,56,42);
+    const frame=cx.getImageData(0,0,56,42);
+    const previous=motionFrames.current;
+    motionFrames.current=frame;
+    if(!previous)return;
+    let l=0,r=0,up=0,down=0;
+    for(let y=4;y<39;y++)for(let x=4;x<52;x++){
+      const a=(y*56+x)*4;
       const change=(Math.abs(frame.data[a]-previous.data[a])+Math.abs(frame.data[a+1]-previous.data[a+1])+Math.abs(frame.data[a+2]-previous.data[a+2]))/3;
-      if (change>35) { if(x<20) l++; else r++; }
+      if(change>30){if(x<28)l++;else r++;if(y<21)up++;else down++;}
     }
     const total=l+r;
-    const hit=total>125 && now-lastSwing.current>450;
-    if(hit)lastSwing.current=now;
-    emit({ ...NONE,left:l>r*1.45 && l>27,right:r>l*1.45 && r>27,hit });
+    const activeThreshold=sensitivityRef.current==='maximum'?30:sensitivityRef.current==='high'?43:64;
+    const sideThreshold=sensitivityRef.current==='maximum'?13:sensitivityRef.current==='high'?20:30;
+    const cooldown=sensitivityRef.current==='maximum'?310:410;
+    const hit=total>activeThreshold*3 && now-lastSwing.current>cooldown;
+    if(hit){lastSwing.current=now;basicDebounce.current=now+190;}
+    // Fallback is deliberately limited: differential pixels cannot reliably infer full-body pose.
+    const movement=total>activeThreshold;
+    const left=movement&&l>r*1.17&&l>sideThreshold;
+    const right=movement&&r>l*1.17&&r>sideThreshold;
+    emit({...NONE,left:reverseRef.current?right:left,right:reverseRef.current?left:right,
+      hit:now<basicDebounce.current,dash:total>activeThreshold*5});
   };
 
   const stop = useCallback(() => {
@@ -102,10 +93,11 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
     if (v) v.srcObject = null;
     try { pose.current?.close?.(); } catch { /* ignore */ }
     pose.current = null;
-    center.current = null;
-    baseShoulder.current = null;
-    prevWrists.current = null;
+    motionState.current=createMotionState();
+    lastVideoTime.current=-1;
+    basicDebounce.current=0;
     motionFrames.current = null;
+    basicCanvas.current=null;
     emit(NONE);
     setDetected(NONE);
     setStatus('off');
@@ -124,6 +116,7 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
   async function start() {
     if (running.current) return;
     const token = ++runToken.current;
+    motionState.current=createMotionState();lastVideoTime.current=-1;lastFrame.current=0;
     setStatus('loading'); setInfo('カメラ・姿勢認識を準備しています…');
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('HTTPSかlocalhostでカメラを開いてください');
@@ -146,23 +139,25 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
         }
         if (!running.current || token !== runToken.current) { detectPose.close?.(); return; }
         pose.current = detectPose;
-        setStatus('pose'); setInfo('姿勢認識ON：左右移動・手振りショット・両手を上げてロブ');
+        setStatus('pose'); setInfo('高感度の姿勢認識中：その場で約1秒静止して位置合わせしてください');
       } catch (err) {
         console.warn('Pose landmark assets not available, fallback to motion detection',err);
         if (token !== runToken.current) return;
-        setStatus('basic');setInfo('簡易動作認識：左右に動く・大きく動いてショット（高精度モデルの取得に失敗）');
+        setStatus('basic');setInfo('簡易認識：モデルが読み込めないため左右移動とショットのみ検出します');
       }
       const loop = (now: number) => {
         if (!running.current) return;
-        if (now-lastFrame.current>=50) {
-          lastFrame.current=now;
+        // Aim for 30 Hz; only analyze new video frames to reduce latency and CPU use.
+        if (now-lastFrame.current>=33) {
           const v=video.current;
-          if (v && v.readyState>=2) {
+          if (v && v.readyState>=2 && v.currentTime!==lastVideoTime.current) {
+            lastVideoTime.current=v.currentTime;
+            lastFrame.current=now;
             if (pose.current) {
               try {
                 const result=pose.current.detectForVideo(v,now);
                 if(result.landmarks?.[0]) analyzePose(result.landmarks[0],now);
-                else emit(NONE);
+                else {motionState.current=createMotionState();emit(NONE);}
               } catch (err) { console.warn('Pose recognition failed',err); }
             } else analyzeBasic(now);
           }
@@ -177,6 +172,15 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
     }
   }
 
+  const recalibrate=()=>{
+    motionState.current=createMotionState();
+    motionFrames.current=null;
+    setInfo('中心位置の再設定中：カメラの前にまっすぐ立ち、約1秒待ってください');
+  };
+  const changeSensitivity=(value:MotionSensitivity)=>{
+    sensitivityRef.current=value;
+    setSensitivity(value);
+  };
   const active = status === 'pose' || status === 'basic';
   const actionLabels = [
     detected.left && '⬅️ 左へ', detected.right && '➡️ 右へ',
@@ -219,10 +223,17 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
     <div className="camera-help">
       <p role="status" className="camera-status-info">{info}</p>
       {(status==='pose'||status==='basic') && <div className="camera-quick-actions">
-        <button type="button" className="camera-button camera-secondary-button" onClick={() => { center.current=null; baseShoulder.current=null; prevWrists.current=null; }}>🎯 中心位置を再設定</button>
+        <button type="button" className="camera-button camera-secondary-button" onClick={recalibrate}>🎯 中心位置を再設定</button>
       </div>}
+      <div className="camera-sensitivity-settings">
+        <div className="camera-sensitivity-label"><strong>動きの感度</strong><span>反応しにくい場合は「最大」を選択</span></div>
+        <div className="camera-sensitivity-options" role="group" aria-label="体の動きの感度">
+          {([['normal','標準'],['high','高感度'],['maximum','最大']] as const).map(([value,label])=><button key={value} type="button" onClick={()=>changeSensitivity(value)} className={`camera-button camera-secondary-button ${sensitivity===value?'camera-sensitivity-active':''}`} aria-pressed={sensitivity===value}>{label}</button>)}
+        </div>
+        <button type="button" className="camera-button camera-secondary-button camera-direction-toggle" onClick={()=>{reverseRef.current=!reverseRef.current;setReverse(reverseRef.current);recalibrate();}} aria-pressed={reverse}>⇄ 左右の向きを反転 {reverse?'ON':'OFF'}</button>
+      </div>
       <p className="camera-instructions">
-        体を左右・前後に動かして移動し、腕を振るとショット。姿勢認識は端末内で行い、映像や人物の骨格を画面に出さず、録画・送信もしません。カメラ許可は開始時のみ求めます。
+        腕を素早く振るとショット、両手を上げて動かすとロブ、体を左右・前後に動かすと移動、素早く大きく移動するとダッシュ。姿が画面に映ることはありません。周囲の物や人との距離を確保してください。
       </p>
     </div>
   </div>;

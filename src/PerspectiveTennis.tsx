@@ -319,6 +319,7 @@ export default function PerspectiveTennis({ onDoubles }: { onDoubles: () => void
     let raf = 0;
     let last = performance.now();
     let cameraShiftSmooth = 0;
+    let bufferedShot: { kind: ShotKind; expires: number } | null = null;
 
     // Browser-sized canvas with device pixel ratio for sharp outlines on high-DPI monitors.
     const resize = () => {
@@ -464,17 +465,25 @@ export default function PerspectiveTennis({ onDoubles }: { onDoubles: () => void
 
       const wantAction = hitPressed || lobPressed || jumpPressed;
       if ((servePressed || wantAction) && w.phase === 'serve' && w.server === 'player') {
+        bufferedShot = null;
         serveIfPossible('player', jump || dash);
         return;
       }
 
-      if (wantAction && w.phase === 'rally' && w.player.cool <= 0) {
+      // A quick arm swing arrives between animation frames; keep a 320ms
+      // hit window so the ball can enter reach a moment AFTER the gesture.
+      if (wantAction && w.phase === 'rally') {
+        const input: MotionKeys = { left, right, up, down, hit, lob, jump, dash };
+        bufferedShot = {kind: choosePlayerShot(input, w.phase), expires: now + 320};
+      }
+      if (w.phase !== 'rally' || (bufferedShot && now > bufferedShot.expires)) bufferedShot = null;
+      if (bufferedShot && w.phase === 'rally' && w.player.cool <= 0) {
         const ball = w.ball;
         const close = Math.hypot(ball.x - w.player.x, (ball.y - w.player.y) * 1.55);
-        const canHit = ball.y < 0.53 && close < 0.22 && ball.z < (jumpPressed ? 0.42 : 0.28);
+        const canHit = ball.y < 0.56 && close < 0.25 && ball.z < (bufferedShot.kind === 'smash' ? 0.44 : 0.34);
         if (canHit) {
-          const input: MotionKeys = { left, right, up, down, hit, lob, jump, dash };
-          hitBall('player', choosePlayerShot(input, w.phase), w.player.lastDx, w.player.lastDy);
+          hitBall('player', bufferedShot.kind, w.player.lastDx, w.player.lastDy);
+          bufferedShot = null;
         }
       }
 
