@@ -905,12 +905,15 @@ export default function App() {
       const isOnlineMatch = liveGameRef.current.mode === 4;
       const is2POnline = isOnlineMatch && liveGameRef.current.onlinePlayerIndex === 1 && i === 1;
 
-      // オンライン対戦では自分のキャラを WASD でも矢印キーでも操作できる
+      // オンライン対戦と CPU 対戦では、人間のキャラを WASD でも矢印キーでも操作できる
+      // (ローカル2人対戦だけは 1P=WASD / 2P=矢印キー に分かれる)
       const KEYSETS = [
         { l: "KeyA", r: "KeyD", u: "KeyW", n: ["KeyQ"], b: ["KeyE"] },
         { l: "ArrowLeft", r: "ArrowRight", u: "ArrowUp", n: ["Slash"], b: ["Backslash", "IntlBackslash", "IntlRo", "IntlYen"] },
       ];
-      const useSets = isOnlineMatch ? KEYSETS : [KEYSETS[i]];
+      const curMode = liveGameRef.current.mode;
+      const bothKeySets = isOnlineMatch || (curMode >= 1 && curMode <= 3 && i === 0);
+      const useSets = bothKeySets ? KEYSETS : [KEYSETS[i]];
       const pressed = (k: string) => !!(keys[k] || activeTouchKeys.current[k]);
 
       const isR = useSets.some((s) => pressed(s.r));
@@ -2024,9 +2027,11 @@ export default function App() {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // 部屋コード入力欄などに文字を打っているときはゲーム操作として扱わない
+      // (ただし矢印キーは入力欄にカーソルが残っていてもゲーム操作として受け付ける)
       const tgt = e.target as HTMLElement | null;
-      if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA")) return;
-      if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Slash","Backslash","IntlRo","IntlYen"].includes(e.code)) {
+      const typing = !!tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA");
+      if (typing && !e.code.startsWith("Arrow")) return;
+      if (!typing && ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Slash","Backslash","IntlRo","IntlYen"].includes(e.code)) {
         e.preventDefault();
       }
       keys[e.code] = true;
@@ -2054,8 +2059,14 @@ export default function App() {
       }
     };
 
+    // 別ウィンドウに切り替えたときにキーが押しっぱなしにならないようにする
+    const handleBlur = () => {
+      Object.keys(keys).forEach((k) => { keys[k] = false; });
+    };
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
     cv.addEventListener("click", handleCanvasClick);
 
     resetPlayers(); 
@@ -2067,6 +2078,7 @@ export default function App() {
       cancelAnimationFrame(animId);
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
       cv.removeEventListener("click", handleCanvasClick);
     };
   }, []);
