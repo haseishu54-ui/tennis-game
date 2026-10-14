@@ -6,7 +6,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import MotionCamera from './MotionCamera';
 import DoublesArena from './DoublesArena';
-import PerspectiveGame from './PerspectiveGame';
+import PerspectiveTennis from './PerspectiveTennis';
 import { 
   Volume2, 
   VolumeX, 
@@ -215,7 +215,7 @@ const STAT_CONFIG = [
   { key: 'car', name: 'キャリー力', desc: '届かない遠いボールも吸い込む守備範囲', icon: Shield },
 ] as const;
 
-function ClassicGame({ onDoubles, on3D }: { onDoubles: () => void; on3D: () => void }) {
+function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [soundOn, setSoundOn] = useState(true);
@@ -2214,7 +2214,6 @@ function ClassicGame({ onDoubles, on3D }: { onDoubles: () => void; on3D: () => v
 
         {/* Global Toolbar */}
         <div className="game-toolbar flex flex-wrap items-center gap-2">
-          <button onClick={on3D} className="game-primary-navigation py-2 px-3 rounded-lg bg-teal-600 hover:bg-teal-500 font-black text-white text-xs">✨ 3Dテニスに戻る</button>
           <button onClick={onDoubles} className="game-primary-navigation py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-black text-white text-xs flex items-center gap-1.5" title="4人オンラインダブルスに切り替え">👥 オンラインダブルス（4人）</button>
           <button onClick={() => setShowCamera(v => !v)} className="py-2 px-3 rounded-lg bg-sky-700 hover:bg-sky-600 font-bold text-white text-xs">{showCamera?'📷 カメラを閉じる':'📷 カメラ体感操作'}</button>
           {/* 球筋＆タイミングガイドボタン */}
@@ -3020,20 +3019,16 @@ function ClassicGame({ onDoubles, on3D }: { onDoubles: () => void; on3D: () => v
 
 
 export default function App() {
-  // New 3D tennis is the homepage. Legacy 2D modes remain selectable.
-  const current = new URLSearchParams(window.location.search);
-  const [screen, setScreen] = useState<'3d' | 'classic' | 'doubles'>(() =>
-    current.get('doubles') === '1' ? 'doubles' : current.get('classic') === '1' ? 'classic' : '3d');
-  const navigate = (next:'3d'|'classic'|'doubles') => {
+  const [doubles, setDoubles] = useState(() => new URLSearchParams(window.location.search).get('doubles') === '1');
+  const switchToDoubles = () => {
     const url = new URL(window.location.href);
-    url.searchParams.delete('doubles');url.searchParams.delete('classic');url.searchParams.delete('arena');url.searchParams.delete('room');
-    if(next==='doubles')url.searchParams.set('doubles','1');
-    if(next==='classic')url.searchParams.set('classic','1');
-    if(next==='3d')url.searchParams.set('arena','3d');
-    window.history.replaceState({},'',url.toString());setScreen(next);
+    url.searchParams.delete('room');url.searchParams.set('doubles','1');
+    window.history.replaceState({},'',url.toString());setDoubles(true);
   };
-  return screen==='3d' ?
-    <PerspectiveGame onClassic={()=>navigate('classic')} onLegacyDoubles={()=>navigate('doubles')}/> :
-    screen==='doubles' ? <DoublesArena onBack={()=>navigate('3d')}/> :
-    <ClassicGame onDoubles={()=>navigate('doubles')} on3D={()=>navigate('3d')}/>;
+  const switchToClassic = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('doubles');url.searchParams.delete('room');
+    window.history.replaceState({},'',url.toString());setDoubles(false);
+  };
+  return doubles ? <DoublesArena onBack={switchToClassic} /> : <PerspectiveTennis onDoubles={switchToDoubles} />;
 }

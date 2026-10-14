@@ -283,3 +283,67 @@ button:not(:disabled):active { transform: scale(.985); }
   .game-play-workspace.with-camera .camera-help { gap:5px; }
   .game-doubles-focus .game-doubles-canvas { width:min(100%,calc((100dvh - 190px) * 1.66667)); }
 }
+
+/* v1.5: privacy-first camera mode. Actual webcam frames, even a mirrored preview,
+   are NEVER displayed. The tiny hidden element stays mounted for local inference. */
+.camera-private-capture {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+.camera-panel-private {
+  position: relative;
+  gap: 12px;
+  max-height: min(80dvh, 550px);
+  overflow: auto;
+}
+.camera-private-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 15px;
+  border: 1px solid rgba(74,222,128,.4);
+  background: linear-gradient(135deg,#102b36,#11233f);
+}
+.camera-private-emblem {
+  flex: 0 0 auto;
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: rgba(45,212,191,.15);
+  font-size: 34px;
+}
+.camera-private-message { flex: 1 1 180px; display:flex; flex-direction:column; gap:7px; }
+.camera-private-message strong { color:#bbf7d0; font-size:clamp(16px,1.2vw,21px); }
+.camera-private-message span { color:#d4e8f7; font-size:13px; line-height:1.6; }
+.camera-private-action-row {
+  display:flex; flex:1 0 100%; flex-wrap:wrap; gap:8px;
+  padding:13px 14px; border:1px solid rgba(125,211,252,.22);
+  border-radius:12px; background:rgba(4,12,25,.62);
+  align-items:center; justify-content:space-between;
+}
+.camera-private-action-label { color:#b5d2e9; font-size:13px; }
+.camera-private-action-row strong { color:#fff; font-size:15px; }
+/* A small status panel leaves the actual match much more room. */
+.game-play-workspace.with-camera,
+.game-doubles-play-grid.with-camera { grid-template-columns:minmax(0,1fr) minmax(270px,24%); }
+.game-play-workspace.with-camera:fullscreen { grid-template-columns:minmax(0,1fr) minmax(290px,24%); }
+@media (max-width:1050px) {
+  .game-play-workspace.with-camera,
+  .game-play-workspace.with-camera:fullscreen,
+  .game-doubles-play-grid.with-camera {display:flex;flex-direction:column;align-items:stretch;}
+}
+@media (max-width:600px) {
+  .camera-private-status {padding:12px;}
+  .camera-private-emblem {width:48px;height:48px;font-size:27px;}
+  .camera-panel-private {max-height:none;}
+}

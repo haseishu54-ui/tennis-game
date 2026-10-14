@@ -13,9 +13,6 @@ type Props = { onKeys: (keys: MotionKeys) => void; compact?: boolean };
 /** Camera stays entirely on this device. Only input keys travel over the game socket. */
 export default function MotionCamera({ onKeys, compact = false }: Props) {
   const video = useRef<HTMLVideoElement>(null);
-  const cameraPanel = useRef<HTMLDivElement>(null);
-  const [guides, setGuides] = useState(true);
-  const overlay = useRef<HTMLCanvasElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const pose = useRef<any>(null);
   const raf = useRef(0);
@@ -28,31 +25,22 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
   const lastFrame = useRef(0);
   const motionFrames = useRef<ImageData | null>(null);
   const onKeysRef = useRef(onKeys);
+  const [detected, setDetected] = useState<MotionKeys>(NONE);
+  const lastDisplay = useRef(0);
   const [status, setStatus] = useState<'off' | 'loading' | 'pose' | 'basic' | 'error'>('off');
   const [info, setInfo] = useState('カメラを開始すると体の動きで操作できます');
   onKeysRef.current = onKeys;
 
-  const emit = (k: MotionKeys) => onKeysRef.current(k);
-
-  const paint = (points: Landmark[]) => {
-    const c = overlay.current;
-    if (!c) return;
-    const ctx = c.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, c.width, c.height);
-    const bones = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[24,26]];
-    ctx.lineWidth = Math.max(3,c.width / 145); ctx.strokeStyle = '#40ffb9';
-    ctx.shadowColor='#073b43';ctx.shadowBlur=4;
-    bones.forEach(([a,b]) => {
-      if ((points[a]?.visibility ?? 1) < .35 || (points[b]?.visibility ?? 1) < .35) return;
-      ctx.beginPath(); ctx.moveTo(points[a].x*c.width,points[a].y*c.height);
-      ctx.lineTo(points[b].x*c.width,points[b].y*c.height); ctx.stroke();
-    });
-    ctx.shadowBlur=0;ctx.fillStyle = '#facc15';
-    [11,12,15,16,23,24].forEach(i => {
-      if (!points[i]) return;
-      ctx.beginPath();ctx.arc(points[i].x*c.width,points[i].y*c.height,Math.max(5,c.width/120),0,Math.PI*2);ctx.fill();
-    });
+  // Video frames never appear in the UI: only a short, non-identifying action label does.
+  const emit = (k: MotionKeys) => {
+    onKeysRef.current(k);
+    const now = performance.now();
+    if (now - lastDisplay.current >= 120) {
+      lastDisplay.current = now;
+      setDetected(previous =>
+        (Object.keys(NONE) as (keyof MotionKeys)[]).every(key => previous[key] === k[key]) ? previous : { ...k }
+      );
+    }
   };
 
   const analyzePose = (points: Landmark[], now: number) => {
@@ -78,7 +66,6 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
     prevWrists.current = [leftWrist, rightWrist];
     emit({left:delta > .085,right:delta < -.085,up:depthRatio>1.26,down:depthRatio<.78,jump:jumping && !upHands,
       hit:swing && !upHands,lob:swing && upHands,dash:Math.abs(delta)>.23});
-    paint(points);
   };
 
   // Simplified movement detection used if pose model assets are blocked. No data leaves the browser.
@@ -120,6 +107,7 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
     prevWrists.current = null;
     motionFrames.current = null;
     emit(NONE);
+    setDetected(NONE);
     setStatus('off');
     setInfo('カメラ停止中');
   }, []);
@@ -174,7 +162,7 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
               try {
                 const result=pose.current.detectForVideo(v,now);
                 if(result.landmarks?.[0]) analyzePose(result.landmarks[0],now);
-                else { emit(NONE);overlay.current?.getContext('2d')?.clearRect(0,0,overlay.current.width,overlay.current.height); }
+                else emit(NONE);
               } catch (err) { console.warn('Pose recognition failed',err); }
             } else analyzeBasic(now);
           }
@@ -189,44 +177,53 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
     }
   }
 
-  const fullCamera = () => {
-    const el=cameraPanel.current;
-    if(!el)return;
-    if(document.fullscreenElement===el)void document.exitFullscreen().catch(()=>{});
-    else void el.requestFullscreen().catch(()=>{});
-  };
+  const active = status === 'pose' || status === 'basic';
+  const actionLabels = [
+    detected.left && '⬅️ 左へ', detected.right && '➡️ 右へ',
+    detected.up && '⬆️ 前へ', detected.down && '⬇️ 後ろへ',
+    detected.dash && '⚡ ダッシュ', detected.jump && '💥 ジャンプ',
+    detected.hit && '🎾 ショット', detected.lob && '🎈 ロブ',
+  ].filter(Boolean) as string[];
 
-  return <div ref={cameraPanel} className={`camera-panel ${compact?'camera-panel-compact':''}`}>
+  return <div className={`camera-panel camera-panel-private ${compact ? 'camera-panel-compact' : ''}`}>
     <div className="camera-panel-heading">
       <div>
-        <strong className="camera-panel-title">📷 カメラ体感操作</strong>
+        <strong className="camera-panel-title">📷 カメラ操作（映像非表示）</strong>
         <span className={`camera-state ${status==='pose'?'is-pose':status==='basic'?'is-basic':status==='error'?'is-error':''}`}>
           {status==='pose'?'● 姿勢認識中':status==='basic'?'● 簡易認識中':status==='loading'?'● 準備中':status==='error'?'● 接続エラー':'○ 停止中'}
         </span>
       </div>
       <div className="camera-actions">
-        <button type="button" className="camera-button camera-start-button" disabled={status==='loading'} onClick={running.current?stop:start}>{running.current?'■ 停止':'▶ カメラ開始'}</button>
-        <button type="button" className="camera-button camera-secondary-button" title="映像を大きく表示" onClick={fullCamera}>⛶ 映像拡大</button>
+        <button type="button" className="camera-button camera-start-button" disabled={status==='loading'} onClick={running.current ? stop : start}>
+          {running.current ? '■ カメラ停止' : '▶ カメラ開始'}
+        </button>
       </div>
     </div>
-    <div className="camera-video-surface">
-      <video ref={video} autoPlay playsInline muted className="camera-video" />
-      <canvas ref={overlay} width={640} height={480} className="camera-skeleton" aria-hidden="true" />
-      {guides && <div className="camera-center-guide" aria-hidden="true"><span>中央に立つ</span></div>}
-      {(status==='off'||status==='loading'||status==='error') && <div className="camera-placeholder" aria-live="polite">
-        <div className="camera-placeholder-icon">📷</div>
-        <strong>{status==='loading'?'カメラを準備しています…':status==='error'?'カメラを確認してください':'カメラを開始してください'}</strong>
-        <span>{status==='error'?info:'人物が中央に映るよう、少し離れてください'}</span>
-      </div>}
-      {(status==='pose'||status==='basic') && <div className="camera-live-label">● LIVE ・ この端末だけに表示</div>}
+
+    {/* Keep the HTMLVideoElement alive for local pose inference, but never paint
+        the footage or a body outline anywhere in the visible document. */}
+    <video ref={video} autoPlay playsInline muted aria-hidden="true" tabIndex={-1} className="camera-private-capture" />
+
+    <div className="camera-private-status" aria-label="カメラ映像を非表示にした操作パネル">
+      <div className="camera-private-emblem" aria-hidden="true">🛡️</div>
+      <div className="camera-private-message">
+        <strong>自分の姿は表示しません</strong>
+        <span>{active ? '映像を見せずに、体の動きだけでゲームを操作中' : status==='loading' ? '姿を表示せずに認識を準備しています' : status==='error' ? 'カメラを確認してください' : 'カメラ開始後も人物映像は表示されません'}</span>
+      </div>
+      <div className="camera-private-action-row" aria-live="polite" aria-atomic="true">
+        <span className="camera-private-action-label">認識している動作</span>
+        <strong>{active ? actionLabels.join(' · ') || '中央・待機中' : 'カメラ停止中'}</strong>
+      </div>
     </div>
+
     <div className="camera-help">
       <p role="status" className="camera-status-info">{info}</p>
-      <div className="camera-quick-actions">
-        {(status==='pose'||status==='basic') && <button type="button" className="camera-button camera-secondary-button" onClick={()=>{center.current=null;baseShoulder.current=null;prevWrists.current=null}}>🎯 中心を再設定</button>}
-        <button type="button" className="camera-button camera-secondary-button" onClick={()=>setGuides(v=>!v)}>{guides?'ガイドを隠す':'ガイドを表示'}</button>
-      </div>
-      <p className="camera-instructions">左右に体を動かして移動、腕を振ってショット。全身が切れない位置で操作してください。映像は送信・録画されません。</p>
+      {(status==='pose'||status==='basic') && <div className="camera-quick-actions">
+        <button type="button" className="camera-button camera-secondary-button" onClick={() => { center.current=null; baseShoulder.current=null; prevWrists.current=null; }}>🎯 中心位置を再設定</button>
+      </div>}
+      <p className="camera-instructions">
+        体を左右・前後に動かして移動し、腕を振るとショット。姿勢認識は端末内で行い、映像や人物の骨格を画面に出さず、録画・送信もしません。カメラ許可は開始時のみ求めます。
+      </p>
     </div>
   </div>;
 }

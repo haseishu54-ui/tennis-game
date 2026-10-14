@@ -19,11 +19,11 @@ const createWorld = ():World => ({ phase:'lobby',score:[0,0],serve:0,countdown:2
 const phaseJapanese:Record<Phase,string> = {lobby:'ルーム待機',countdown:'サーブ準備',play:'ラリー中',point:'ポイント',ended:'試合終了'};
 
 const SKIN = '#ffd9b8';
-function drawHuman(ctx:CanvasRenderingContext2D,p:Player,index:number,now:number,isMe:boolean,label:string){
+function drawHuman(ctx:CanvasRenderingContext2D,p:Player,index:number,now:number,isMe:boolean,label:string,step:number){
   const dir=TEAM(index)===0?1:-1;
   const shirt=COLORS[index];
   const swingPose=p.swing>0;
-  const step=Math.sin(now/180+index)*2.4;
+  // Leg animation is driven by actual traveled distance; idle characters stay completely still.
   ctx.save();
   ctx.translate(p.x,p.y+6);
   ctx.scale(dir,1);
@@ -80,7 +80,7 @@ function drawHuman(ctx:CanvasRenderingContext2D,p:Player,index:number,now:number
   ctx.fillStyle=p.power>=90?'#fef08a':'#7ceefb';ctx.beginPath();ctx.roundRect(p.x-30,p.y+41,60*p.power/100,6,3);ctx.fill();
 }
 
-function drawCourt(ctx:CanvasRenderingContext2D,w:World,now:number,seat:number,practice:boolean,legend:boolean) {
+function drawCourt(ctx:CanvasRenderingContext2D,w:World,now:number,seat:number,practice:boolean,legend:boolean,steps:number[] = [0,0,0,0]) {
   const sky=ctx.createLinearGradient(0,0,WIDTH,HEIGHT);
   sky.addColorStop(0,'#0d3450');sky.addColorStop(1,'#0a1932');
   ctx.fillStyle=sky;ctx.fillRect(0,0,WIDTH,HEIGHT);
@@ -108,7 +108,7 @@ function drawCourt(ctx:CanvasRenderingContext2D,w:World,now:number,seat:number,p
     const p=w.players[i];
     const isMe=(practice?i===0:i===seat);
     const label=practice&&i!==0?(legend&&TEAM(i)===1?'BOSS AI':'CPU'):`${i+1}P`;
-    drawHuman(ctx,p,i,now,isMe,label);
+    drawHuman(ctx,p,i,now,isMe,label,steps[i]||0);
   }
   const b=w.ball;
   if(w.phase==='play'&&b.z>0&&b.vz<250){
@@ -270,6 +270,9 @@ export default function DoublesArena({onBack}:{onBack:()=>void}) {
     const cv=canvas.current;if(!cv)return;
     const ctx=cv.getContext('2d');if(!ctx)return;
     let previous=performance.now(),raf=0;
+    const visualPlayers: { x:number;y:number }[] = [];
+    const walkCycles = [0,0,0,0];
+    const walkSteps = [0,0,0,0];
     const move=(p:Player,i:number,k:Keys,dt:number)=>{
       const dx=Number(k.right)-Number(k.left),dy=Number(k.down)-Number(k.up);
       const norm=Math.hypot(dx,dy)||1;
@@ -386,7 +389,26 @@ export default function DoublesArena({onBack}:{onBack:()=>void}) {
           lastInput.current=now;
         }
       }
-      drawCourt(ctx,world.current,now,isPractice.current?0:playerSeat.current,isPractice.current,god.current);
+      // Online host snapshots arrive at a lower rate than display frames.
+      // Interpolate REMOTE visuals, rather than snapping characters to each packet.
+      const seatIndex=isPractice.current?0:playerSeat.current;
+      const visible=world.current.players.map((p,i)=>{
+        if(!visualPlayers[i]) visualPlayers[i]={x:p.x,y:p.y};
+        const prev=visualPlayers[i];
+        const remote=online.current&&!isPractice.current&&i!==seatIndex;
+        const cpu=isPractice.current&&i!==0;
+        const alpha=remote?1-Math.exp(-dt*16):cpu?1-Math.exp(-dt*24):1;
+        const separation=Math.hypot(p.x-prev.x,p.y-prev.y);
+        const vx=separation>200?p.x:prev.x+(p.x-prev.x)*alpha;
+        const vy=separation>200?p.y:prev.y+(p.y-prev.y)*alpha;
+        const distance=Math.hypot(vx-prev.x,vy-prev.y);
+        if(distance>.09)walkCycles[i]+=distance*.075;
+        walkSteps[i]=distance>.09?Math.sin(walkCycles[i])*4:0;
+        prev.x=vx;prev.y=vy;
+        return {...p,x:vx,y:vy};
+      });
+      const renderWorld={...world.current,players:visible};
+      drawCourt(ctx,renderWorld,now,seatIndex,isPractice.current,god.current,walkSteps);
       if(now-lastUi.current>170){
         const w=world.current;setScore(current=>current[0]!==w.score[0]||current[1]!==w.score[1]?[...w.score]as [number,number]:current);
         setPhase(current=>current!==w.phase?w.phase:current);
@@ -435,7 +457,7 @@ export default function DoublesArena({onBack}:{onBack:()=>void}) {
         <button className="rounded-xl bg-amber-400 px-7 py-3 font-black text-slate-950 disabled:opacity-40" disabled={!(practice || status==='ready'&&seat===0)} onClick={startGame}>🏁 {phase==='ended'?'もう一度プレイ':'試合開始！'}</button>
         <button className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm hover:bg-slate-800 disabled:opacity-40" disabled={!practice&&seat!==0} onClick={resetGame}>↩ 試合リセット</button>
         <button type="button" className="rounded-xl border border-violet-500 bg-violet-950 px-4 py-3 font-bold text-sm" onClick={()=>setFocusMode(v=>!v)}>{focusMode?'🖥 部屋設定も表示':'🖥 大画面に収める'}</button>
-        <button className="rounded-xl border border-sky-600 bg-sky-950 px-4 py-3 font-bold text-sm" onClick={()=>{setCameraEnabled(v=>!v);setFocusMode(true);}}>{cameraEnabled?'📷 カメラを閉じる':'📷 大きなカメラを表示'}</button>
+        <button className="rounded-xl border border-sky-600 bg-sky-950 px-4 py-3 font-bold text-sm" onClick={()=>{setCameraEnabled(v=>!v);setFocusMode(true);}}>{cameraEnabled?'📷 カメラ操作を閉じる':'📷 映像なしカメラ操作'}</button>
       </div>
       <div ref={playWorkspace} className={`game-doubles-play-grid ${cameraEnabled?'with-camera':'without-camera'}`}>
       <section className="game-arena-section rounded-2xl border-2 border-sky-700 shadow-2xl" aria-label="対戦画面">
