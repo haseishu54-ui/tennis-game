@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import MotionCamera from './MotionCamera';
 import DoublesArena from './DoublesArena';
+import PerspectiveTennis from './PerspectiveTennis';
 import { 
   Volume2, 
   VolumeX, 
@@ -3029,5 +3030,5 @@ export default function App() {
     url.searchParams.delete('doubles');url.searchParams.delete('room');
     window.history.replaceState({},'',url.toString());setDoubles(false);
   };
-  return doubles ? <DoublesArena onBack={switchToClassic} /> : <ClassicGame onDoubles={switchToDoubles} />;
+  return doubles ? <DoublesArena onBack={switchToClassic} /> : <PerspectiveTennis onDoubles={switchToDoubles} />;
 }
