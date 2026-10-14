@@ -604,6 +604,8 @@ export default function App() {
     };
 
     const keys: Record<string, boolean> = {};
+    // CPU が「押したことにする」仮想キー (実際のキーボード入力とは完全に別管理)
+    const cpuKeys: Record<string, boolean> = {};
 
     let state: 'select' | 'serve' | 'play' | 'over' = 'select';
     let score = [0, 0];
@@ -914,7 +916,9 @@ export default function App() {
       const curMode = liveGameRef.current.mode;
       const bothKeySets = isOnlineMatch || (curMode >= 1 && curMode <= 3 && i === 0);
       const useSets = bothKeySets ? KEYSETS : [KEYSETS[i]];
-      const pressed = (k: string) => !!(keys[k] || activeTouchKeys.current[k]);
+      // CPU の席は仮想キー(cpuKeys)だけを見る。人間の席はキーボード/タッチだけを見る
+      const isCpuSeat = curMode >= 1 && curMode <= 3 && i === 1;
+      const pressed = (k: string) => isCpuSeat ? !!cpuKeys[k] : !!(keys[k] || activeTouchKeys.current[k]);
 
       const isR = useSets.some((s) => pressed(s.r));
       const isL = useSets.some((s) => pressed(s.l));
@@ -964,9 +968,10 @@ export default function App() {
     }
 
     function movePlayers(dt: number) {
-      if (liveGameRef.current.mode === 4 && liveGameRef.current.onlinePlayerIndex === 0) {
-        // Host moves 1P; 2P is updated via network packets
-        if (players[0]) updateSinglePlayer(players[0], 0, dt);
+      if (liveGameRef.current.mode === 4) {
+        // オンライン: 自分のキャラだけを操作する (相手のキャラはネットワーク経由で更新される)
+        const myIdx = liveGameRef.current.onlinePlayerIndex;
+        if (myIdx !== null && players[myIdx]) updateSinglePlayer(players[myIdx], myIdx, dt);
       } else {
         players.forEach((p, i) => updateSinglePlayer(p, i, dt));
       }
@@ -1482,7 +1487,7 @@ export default function App() {
       const p = players[1], st = STY[p.style], lv = CPU_LV[curMode], front = p.style === "front";
       if (!lv) return;
       const K = { l: "ArrowLeft", r: "ArrowRight", u: "ArrowUp", n: "Slash", b: "Backslash" };
-      keys[K.l] = keys[K.r] = keys[K.u] = keys[K.n] = keys[K.b] = false;
+      cpuKeys[K.l] = cpuKeys[K.r] = cpuKeys[K.u] = cpuKeys[K.n] = cpuKeys[K.b] = false;
       p.spdMul = lv.spdMul;
       let target = front ? NET + 170 : R - 190;
 
@@ -1504,16 +1509,16 @@ export default function App() {
         const plan = predict(thr, front ? NET + 20 : NET + 140, mustBounce);
         if (plan) {
           target = plan.x + 18 * PS + ai.err;
-          if (plan.z > 55 && p.z === 0 && plan.t < 0.34 && plan.t > 0.12) keys[K.u] = true;
+          if (plan.z > 55 && p.z === 0 && plan.t < 0.34 && plan.t > 0.12) cpuKeys[K.u] = true;
           const lead = ai.sp * st.sw + 0.05 + ai.noise;
           if (!ai.skip && plan.t <= lead && p.sw < 0 && p.lock === 0 && Math.abs(p.x - target) < 40) {
-            keys[ai.kind === "b" ? K.b : K.n] = true;
+            cpuKeys[ai.kind === "b" ? K.b : K.n] = true;
           }
         }
       }
       target = clamp(target, NET + 24, R - 10);
       const d = target - p.x;
-      if (Math.abs(d) > 6) keys[d > 0 ? K.r : K.l] = true;
+      if (Math.abs(d) > 6) cpuKeys[d > 0 ? K.r : K.l] = true;
     }
 
     function update(dt: number) {
@@ -2031,6 +2036,8 @@ export default function App() {
       const tgt = e.target as HTMLElement | null;
       const typing = !!tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA");
       if (typing && !e.code.startsWith("Arrow")) return;
+      // Cmd / Ctrl / Alt 併用 (ブラウザのショートカット) はゲーム操作として扱わない
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (!typing && ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Slash","Backslash","IntlRo","IntlYen"].includes(e.code)) {
         e.preventDefault();
       }
@@ -2050,6 +2057,10 @@ export default function App() {
 
     const handleKeyUp = (e: KeyboardEvent) => {
       keys[e.code] = false;
+      // Mac の Cmd や Alt を押している間は他キーの keyup が届かないことがあるため、離した時点で全解除
+      if (e.code === "MetaLeft" || e.code === "MetaRight" || e.code === "AltLeft" || e.code === "AltRight") {
+        Object.keys(keys).forEach((k) => { keys[k] = false; });
+      }
     };
 
     const handleCanvasClick = () => {
@@ -2107,6 +2118,17 @@ export default function App() {
   const handleTouchAction = (code: string, pressed: boolean) => {
     activeTouchKeys.current[code] = pressed;
   };
+
+  // ボタンの外でマウスを離したり、ウィンドウが非アクティブになってもタッチ入力が残らないようにする
+  useEffect(() => {
+    const clearTouch = () => { activeTouchKeys.current = {}; };
+    window.addEventListener('mouseup', clearTouch);
+    window.addEventListener('blur', clearTouch);
+    return () => {
+      window.removeEventListener('mouseup', clearTouch);
+      window.removeEventListener('blur', clearTouch);
+    };
+  }, []);
 
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
@@ -2666,8 +2688,10 @@ export default function App() {
                 <button
                   onMouseDown={() => handleTouchAction('KeyA', true)}
                   onMouseUp={() => handleTouchAction('KeyA', false)}
+                  onMouseLeave={() => handleTouchAction('KeyA', false)}
                   onTouchStart={(e) => { e.preventDefault(); handleTouchAction('KeyA', true); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleTouchAction('KeyA', false); }}
+                  onTouchCancel={() => handleTouchAction('KeyA', false)}
                   className="w-12 h-12 rounded-lg bg-slate-800 active:bg-slate-700 font-bold text-sm border border-slate-700 flex items-center justify-center"
                 >
                   ◀
@@ -2675,8 +2699,10 @@ export default function App() {
                 <button
                   onMouseDown={() => handleTouchAction('KeyW', true)}
                   onMouseUp={() => handleTouchAction('KeyW', false)}
+                  onMouseLeave={() => handleTouchAction('KeyW', false)}
                   onTouchStart={(e) => { e.preventDefault(); handleTouchAction('KeyW', true); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleTouchAction('KeyW', false); }}
+                  onTouchCancel={() => handleTouchAction('KeyW', false)}
                   className="w-12 h-12 rounded-lg bg-slate-800 active:bg-slate-700 font-bold text-sm border border-slate-700 flex items-center justify-center text-emerald-400"
                 >
                   ジャンプ
@@ -2684,8 +2710,10 @@ export default function App() {
                 <button
                   onMouseDown={() => handleTouchAction('KeyD', true)}
                   onMouseUp={() => handleTouchAction('KeyD', false)}
+                  onMouseLeave={() => handleTouchAction('KeyD', false)}
                   onTouchStart={(e) => { e.preventDefault(); handleTouchAction('KeyD', true); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleTouchAction('KeyD', false); }}
+                  onTouchCancel={() => handleTouchAction('KeyD', false)}
                   className="w-12 h-12 rounded-lg bg-slate-800 active:bg-slate-700 font-bold text-sm border border-slate-700 flex items-center justify-center"
                 >
                   ▶
@@ -2695,8 +2723,10 @@ export default function App() {
                 <button
                   onMouseDown={() => handleTouchAction('KeyQ', true)}
                   onMouseUp={() => handleTouchAction('KeyQ', false)}
+                  onMouseLeave={() => handleTouchAction('KeyQ', false)}
                   onTouchStart={(e) => { e.preventDefault(); handleTouchAction('KeyQ', true); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleTouchAction('KeyQ', false); }}
+                  onTouchCancel={() => handleTouchAction('KeyQ', false)}
                   className="px-4 py-2.5 rounded-lg bg-pink-900/60 active:bg-pink-800 text-xs font-bold border border-pink-700 text-pink-200"
                 >
                   通常/シュート (Q)
@@ -2704,8 +2734,10 @@ export default function App() {
                 <button
                   onMouseDown={() => handleTouchAction('KeyE', true)}
                   onMouseUp={() => handleTouchAction('KeyE', false)}
+                  onMouseLeave={() => handleTouchAction('KeyE', false)}
                   onTouchStart={(e) => { e.preventDefault(); handleTouchAction('KeyE', true); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleTouchAction('KeyE', false); }}
+                  onTouchCancel={() => handleTouchAction('KeyE', false)}
                   className="px-4 py-2.5 rounded-lg bg-indigo-900/60 active:bg-indigo-800 text-xs font-bold border border-indigo-700 text-indigo-200"
                 >
                   ロブ (E)
@@ -2720,8 +2752,10 @@ export default function App() {
                 <button
                   onMouseDown={() => handleTouchAction('ArrowLeft', true)}
                   onMouseUp={() => handleTouchAction('ArrowLeft', false)}
+                  onMouseLeave={() => handleTouchAction('ArrowLeft', false)}
                   onTouchStart={(e) => { e.preventDefault(); handleTouchAction('ArrowLeft', true); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleTouchAction('ArrowLeft', false); }}
+                  onTouchCancel={() => handleTouchAction('ArrowLeft', false)}
                   className="w-12 h-12 rounded-lg bg-slate-800 active:bg-slate-700 font-bold text-sm border border-slate-700 flex items-center justify-center"
                 >
                   ◀
@@ -2729,8 +2763,10 @@ export default function App() {
                 <button
                   onMouseDown={() => handleTouchAction('ArrowUp', true)}
                   onMouseUp={() => handleTouchAction('ArrowUp', false)}
+                  onMouseLeave={() => handleTouchAction('ArrowUp', false)}
                   onTouchStart={(e) => { e.preventDefault(); handleTouchAction('ArrowUp', true); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleTouchAction('ArrowUp', false); }}
+                  onTouchCancel={() => handleTouchAction('ArrowUp', false)}
                   className="w-12 h-12 rounded-lg bg-slate-800 active:bg-slate-700 font-bold text-sm border border-slate-700 flex items-center justify-center text-emerald-400"
                 >
                   ジャンプ
@@ -2738,8 +2774,10 @@ export default function App() {
                 <button
                   onMouseDown={() => handleTouchAction('ArrowRight', true)}
                   onMouseUp={() => handleTouchAction('ArrowRight', false)}
+                  onMouseLeave={() => handleTouchAction('ArrowRight', false)}
                   onTouchStart={(e) => { e.preventDefault(); handleTouchAction('ArrowRight', true); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleTouchAction('ArrowRight', false); }}
+                  onTouchCancel={() => handleTouchAction('ArrowRight', false)}
                   className="w-12 h-12 rounded-lg bg-slate-800 active:bg-slate-700 font-bold text-sm border border-slate-700 flex items-center justify-center"
                 >
                   ▶
@@ -2749,8 +2787,10 @@ export default function App() {
                 <button
                   onMouseDown={() => handleTouchAction('Slash', true)}
                   onMouseUp={() => handleTouchAction('Slash', false)}
+                  onMouseLeave={() => handleTouchAction('Slash', false)}
                   onTouchStart={(e) => { e.preventDefault(); handleTouchAction('Slash', true); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleTouchAction('Slash', false); }}
+                  onTouchCancel={() => handleTouchAction('Slash', false)}
                   className="px-4 py-2.5 rounded-lg bg-amber-900/60 active:bg-amber-800 text-xs font-bold border border-amber-700 text-amber-200"
                 >
                   通常/シュート (/)
@@ -2758,8 +2798,10 @@ export default function App() {
                 <button
                   onMouseDown={() => handleTouchAction('Backslash', true)}
                   onMouseUp={() => handleTouchAction('Backslash', false)}
+                  onMouseLeave={() => handleTouchAction('Backslash', false)}
                   onTouchStart={(e) => { e.preventDefault(); handleTouchAction('Backslash', true); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleTouchAction('Backslash', false); }}
+                  onTouchCancel={() => handleTouchAction('Backslash', false)}
                   className="px-4 py-2.5 rounded-lg bg-orange-900/60 active:bg-orange-800 text-xs font-bold border border-orange-700 text-orange-200"
                 >
                   ロブ (\)
