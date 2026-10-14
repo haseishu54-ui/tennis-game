@@ -1819,9 +1819,18 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
         return STY[p.style].name;
       };
 
+      // 背景に溶け込まないHUD帯。コートの外側に配置する。
+      ctx.fillStyle = 'rgba(6, 19, 38, .88)';
+      ctx.beginPath();
+      ctx.roundRect(L + 8, 12, R - L - 16, 84, 15);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.22)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
       // スコア & プレイヤーHUD
       text(String(score[0]), 560, 48, 46, COLORS[0], "center", 900);
-      text("—", 640, 48, 30, "#14212b", "center", 500);
+      text("—", 640, 48, 30, "#e2e8f0", "center", 500);
       text(String(score[1]), 720, 48, 46, COLORS[1], "center", 900);
       
       text(`1P ${nm(0)}`, L + 20, 42, 22, COLORS[0], "left");
@@ -1830,8 +1839,8 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
       if (players[0] && players[1]) {
         const e0 = players[0].ev;
         const e1 = players[1].ev;
-        text(`足:${e0.spd} 跳:${e0.jmp} 決:${e0.pow} 技:${e0.tec} 拾:${e0.car}`, L + 20, 68, 12, "#94a3b8", "left", 600);
-        text(`足:${e1.spd} 跳:${e1.jmp} 決:${e1.pow} 技:${e1.tec} 拾:${e1.car}`, R - 20, 68, 12, "#94a3b8", "right", 600);
+        text(`足:${e0.spd} 跳:${e0.jmp} 決:${e0.pow} 技:${e0.tec} 拾:${e0.car}`, L + 20, 68, 13, "#dbeafe", "left", 600);
+        text(`足:${e1.spd} 跳:${e1.jmp} 決:${e1.pow} 技:${e1.tec} 拾:${e1.car}`, R - 20, 68, 13, "#dbeafe", "right", 600);
       }
 
       text(`ラリー ${rally}`, W / 2, H - 16, 18, "#cfe3f7", "center", 600);
@@ -1950,14 +1959,20 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
       }
 
       // ボール本体
-      ctx.fillStyle = "#e8ff3b"; 
-      ctx.strokeStyle = "#fff"; 
-      ctx.lineWidth = 1.2;
+      ctx.fillStyle = '#f0ff39';
+      ctx.strokeStyle = '#192a3a';
+      ctx.lineWidth = 2.1;
+      ctx.shadowColor = 'rgba(249,255,154,.7)';
+      ctx.shadowBlur = 13;
       ctx.beginPath(); 
       ctx.arc(ball.x, GY - bz - BALL_R, BALL_R, 0, 7); 
       ctx.fill();
-      ctx.beginPath(); 
-      ctx.arc(ball.x - BALL_R * 1.1, GY - bz - BALL_R, BALL_R * 0.85, -0.9, 0.9); 
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(ball.x - BALL_R * 1.1, GY - bz - BALL_R, BALL_R * 0.85, -0.9, 0.9);
       ctx.stroke();
 
       if (state === "serve") text(msg, W / 2, 130, 32, "#14212b");
@@ -2172,15 +2187,15 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
   const p2TotalEV = sumEV(p2EV);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-3 sm:p-5 select-none font-sans">
+    <div className={`game-classic-page min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-3 sm:p-5 select-none font-sans ${showCamera ? 'game-camera-active' : ''}`}>
       {/* Top Header Bar */}
-      <header className="w-full max-w-6xl flex items-center justify-between pb-3 border-b border-slate-800">
+      <header className="game-header w-full max-w-6xl flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-700/80">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-lg">
             🎾
           </div>
           <div>
-            <h1 className="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-2">
+            <h1 className="text-base sm:text-lg font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
               ふたりでテニス
               {mode === 4 && onlineStatus === 'ready' ? (
                 <span className="text-xs font-semibold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 flex items-center gap-1">
@@ -2197,9 +2212,9 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
         </div>
 
         {/* Global Toolbar */}
-        <div className="flex items-center gap-2">
-          <button onClick={onDoubles} className="py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-black text-white text-xs flex items-center gap-1.5" title="4人オンラインダブルスに切り替え">👥 オンラインダブルス（4人）</button>
-          <button onClick={() => setShowCamera(v => !v)} className="py-2 px-3 rounded-lg bg-sky-700 hover:bg-sky-600 font-bold text-white text-xs">📷 カメラ体感操作</button>
+        <div className="game-toolbar flex flex-wrap items-center gap-2">
+          <button onClick={onDoubles} className="game-primary-navigation py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-black text-white text-xs flex items-center gap-1.5" title="4人オンラインダブルスに切り替え">👥 オンラインダブルス（4人）</button>
+          <button onClick={() => setShowCamera(v => !v)} className="py-2 px-3 rounded-lg bg-sky-700 hover:bg-sky-600 font-bold text-white text-xs">{showCamera?'📷 カメラを閉じる':'📷 カメラ体感操作'}</button>
           {/* 球筋＆タイミングガイドボタン */}
           <button
             onClick={() => setShowShotGuide(true)}
@@ -2252,36 +2267,27 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
         </div>
       </header>
 
-      {showCamera && <div className="w-full max-w-6xl mb-3"><MotionCamera onKeys={(k) => {
-        activeTouchKeys.current.KeyA = k.left;
-        activeTouchKeys.current.KeyD = k.right;
-        activeTouchKeys.current.KeyW = k.jump;
-        activeTouchKeys.current.KeyQ = k.hit;
-        activeTouchKeys.current.KeyE = k.lob;
-        activeTouchKeys.current.ShiftLeft = k.dash;
-        // Keep local player 2 keyboard controls independent of camera input.
-      }} /></div>}
-
+      {/* Camera and game are a single responsive workspace, including in fullscreen. */}
+      <div ref={containerRef} className={`game-play-workspace ${showCamera ? 'with-camera' : 'without-camera'} ${gameState === 'select' ? 'is-setup' : 'is-playing'}`}>
       {/* Main Game Arena */}
-      <main 
-        ref={containerRef}
-        className="w-full max-w-6xl flex flex-col items-center justify-center my-auto py-2 relative"
+      <main
+        className="game-classic-main w-full max-w-6xl flex flex-col items-center justify-center my-auto py-3 relative"
       >
-        <div className="relative w-full aspect-[1280/620] bg-slate-950 rounded-xl overflow-hidden shadow-2xl border border-slate-800">
+        <div className={`game-stage relative w-full bg-slate-950 rounded-2xl overflow-hidden shadow-2xl border border-slate-700 ${gameState === 'select' ? 'game-stage-setup' : 'aspect-[1280/620]'}`}>
           <canvas
             ref={canvasRef}
             width={1280}
             height={620}
             tabIndex={0}
             aria-label="ふたりでテニス ゲーム画面"
-            className="w-full h-full block cursor-pointer outline-none"
+            className={`w-full h-full cursor-pointer outline-none ${gameState === 'select' ? 'hidden' : 'block'}`}
           />
 
           {/* Effort Values & Style Selection Overlay (when in 'select' state) */}
           {gameState === 'select' && (
-            <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md p-4 sm:p-6 overflow-y-auto flex flex-col justify-between z-10">
+            <div className="game-setup-panel relative bg-slate-950/95 p-4 sm:p-7 flex flex-col gap-5 z-10">
               {/* Header inside modal */}
-              <div className="text-center max-w-2xl mx-auto mb-3">
+              <div className="text-center w-full mx-auto mb-3">
                 <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center justify-center gap-2">
                   <span>プレースタイル ＆ 努力値カスタマイズ</span>
                 </h2>
@@ -2290,7 +2296,7 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
                 </p>
 
                 {/* Mode Select Buttons */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-3">
+                <div className="game-mode-grid grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2 mt-4">
                   {[
                     { id: 0, label: '1: 2人対戦' },
                     { id: 1, label: '2: CPU かんたん' },
@@ -2308,7 +2314,7 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
                           connectOnline();
                         }
                       }}
-                      className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      className={`game-mode-button py-3 px-3 rounded-xl text-sm font-bold transition-all cursor-pointer ${
                         mode === m.id
                           ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/20'
                           : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700/60'
@@ -2402,7 +2408,7 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
               </div>
 
               {/* Two Players Customization Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-auto">
+              <div className="game-player-cards grid grid-cols-1 lg:grid-cols-2 gap-4 my-auto">
                 {/* 1P Setup */}
                 <div className="bg-slate-900/90 rounded-xl p-4 border border-[#ff5d73]/40 shadow-lg flex flex-col justify-between">
                   <div>
@@ -2479,7 +2485,7 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
                               <button
                                 onClick={() => handleEVChange(0, key as keyof EffortValues, -1)}
                                 disabled={val <= 0 || (mode === 4 && onlineRole === '2p')}
-                                className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 flex items-center justify-center font-bold text-xs cursor-pointer"
+                                className="game-stat-button w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 flex items-center justify-center font-bold text-xs cursor-pointer"
                               >
                                 <Minus className="w-3 h-3" />
                               </button>
@@ -2500,7 +2506,7 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
                               <button
                                 onClick={() => handleEVChange(0, key as keyof EffortValues, 1)}
                                 disabled={val >= 5 || p1TotalEV >= MAX_TOTAL_EV || (mode === 4 && onlineRole === '2p')}
-                                className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 flex items-center justify-center font-bold text-xs cursor-pointer"
+                                className="game-stat-button w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 flex items-center justify-center font-bold text-xs cursor-pointer"
                               >
                                 <Plus className="w-3 h-3" />
                               </button>
@@ -2624,7 +2630,7 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
                               <button
                                 onClick={() => handleEVChange(1, key as keyof EffortValues, -1)}
                                 disabled={val <= 0 || (mode === 4 && onlineRole === '1p')}
-                                className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 flex items-center justify-center font-bold text-xs cursor-pointer"
+                                className="game-stat-button w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 flex items-center justify-center font-bold text-xs cursor-pointer"
                               >
                                 <Minus className="w-3 h-3" />
                               </button>
@@ -2645,7 +2651,7 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
                               <button
                                 onClick={() => handleEVChange(1, key as keyof EffortValues, 1)}
                                 disabled={val >= 5 || p2TotalEV >= MAX_TOTAL_EV || (mode === 4 && onlineRole === '1p')}
-                                className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 flex items-center justify-center font-bold text-xs cursor-pointer"
+                                className="game-stat-button w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 flex items-center justify-center font-bold text-xs cursor-pointer"
                               >
                                 <Plus className="w-3 h-3" />
                               </button>
@@ -2722,7 +2728,7 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
 
         {/* On-screen touch controller */}
         {touchControls && (
-          <div className="w-full mt-4 p-3 bg-slate-950/80 border border-slate-800 rounded-xl grid grid-cols-2 gap-4">
+          <div className="w-full mt-4 p-3 bg-slate-900 border border-slate-700 rounded-xl grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* 1P Left Pad */}
             <div className="flex flex-col items-center gap-2 p-2 bg-slate-900/60 rounded-lg border border-slate-800">
               <span className="text-xs font-semibold text-[#ff5d73]">1P 操作 (左コート)</span>
@@ -2853,9 +2859,22 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
           </div>
         )}
       </main>
+      {showCamera && <aside className="game-camera-column"><MotionCamera onKeys={(k) => {
+        activeTouchKeys.current.KeyA = k.left;
+        activeTouchKeys.current.KeyD = k.right;
+        activeTouchKeys.current.KeyW = k.jump;
+        activeTouchKeys.current.KeyQ = k.hit;
+        activeTouchKeys.current.KeyE = k.lob;
+        activeTouchKeys.current.ShiftLeft = k.dash;
+        // Keep local player 2 keyboard controls independent of camera input.
+      }} />
+        <button type="button" onClick={toggleFullscreen} className="camera-workspace-fullscreen">⛶ ゲーム＋カメラを全画面表示 / 戻す</button>
+      </aside>}
+
+      </div>
 
       {/* Keys Guide Footer */}
-      <footer className="w-full max-w-6xl mt-3 pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+      <footer className="w-full max-w-6xl mt-5 pt-4 border-t border-slate-700 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-300">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-[#ff5d73]"></span>

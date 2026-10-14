@@ -13,6 +13,8 @@ type Props = { onKeys: (keys: MotionKeys) => void; compact?: boolean };
 /** Camera stays entirely on this device. Only input keys travel over the game socket. */
 export default function MotionCamera({ onKeys, compact = false }: Props) {
   const video = useRef<HTMLVideoElement>(null);
+  const cameraPanel = useRef<HTMLDivElement>(null);
+  const [guides, setGuides] = useState(true);
   const overlay = useRef<HTMLCanvasElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const pose = useRef<any>(null);
@@ -39,16 +41,17 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
     if (!ctx) return;
     ctx.clearRect(0, 0, c.width, c.height);
     const bones = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[24,26]];
-    ctx.lineWidth = 3; ctx.strokeStyle = '#38f9b0';
+    ctx.lineWidth = Math.max(3,c.width / 145); ctx.strokeStyle = '#40ffb9';
+    ctx.shadowColor='#073b43';ctx.shadowBlur=4;
     bones.forEach(([a,b]) => {
       if ((points[a]?.visibility ?? 1) < .35 || (points[b]?.visibility ?? 1) < .35) return;
       ctx.beginPath(); ctx.moveTo(points[a].x*c.width,points[a].y*c.height);
       ctx.lineTo(points[b].x*c.width,points[b].y*c.height); ctx.stroke();
     });
-    ctx.fillStyle = '#facc15';
+    ctx.shadowBlur=0;ctx.fillStyle = '#facc15';
     [11,12,15,16,23,24].forEach(i => {
       if (!points[i]) return;
-      ctx.beginPath();ctx.arc(points[i].x*c.width,points[i].y*c.height,4,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(points[i].x*c.width,points[i].y*c.height,Math.max(5,c.width/120),0,Math.PI*2);ctx.fill();
     });
   };
 
@@ -136,7 +139,7 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
     setStatus('loading'); setInfo('カメラ・姿勢認識を準備しています…');
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('HTTPSかlocalhostでカメラを開いてください');
-      const media = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+      const media = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 720 } }, audio: false });
       if (token !== runToken.current) { media.getTracks().forEach(t=>t.stop()); return; }
       stream.current = media;
       if (!video.current) { media.getTracks().forEach(t=>t.stop()); return; }
@@ -171,7 +174,7 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
               try {
                 const result=pose.current.detectForVideo(v,now);
                 if(result.landmarks?.[0]) analyzePose(result.landmarks[0],now);
-                else { emit(NONE);overlay.current?.getContext('2d')?.clearRect(0,0,320,240); }
+                else { emit(NONE);overlay.current?.getContext('2d')?.clearRect(0,0,overlay.current.width,overlay.current.height); }
               } catch (err) { console.warn('Pose recognition failed',err); }
             } else analyzeBasic(now);
           }
@@ -186,19 +189,44 @@ export default function MotionCamera({ onKeys, compact = false }: Props) {
     }
   }
 
-  return <div className={`rounded-xl border border-sky-500/40 bg-slate-900/90 p-3 text-slate-100 ${compact ? 'max-w-xs' : ''}`}>
-    <div className="flex items-center justify-between gap-2 flex-wrap">
-      <strong className="text-sm">📷 カメラ体感操作 {status === 'pose' ? '●姿勢認識' : status === 'basic' ? '●簡易認識' : ''}</strong>
-      <div className="flex gap-2">
-        {(status==='pose'||status==='basic') && <button type="button" className="rounded bg-sky-600 px-2 py-1 text-xs font-bold" onClick={()=>{center.current=null;baseShoulder.current=null;prevWrists.current=null}}>中心を再設定</button>}
-        <button type="button" className="rounded bg-amber-400 px-3 py-1 text-xs font-bold text-slate-950 disabled:opacity-50" disabled={status==='loading'} onClick={running.current?stop:start}>{running.current?'カメラ停止':'カメラ開始'}</button>
+  const fullCamera = () => {
+    const el=cameraPanel.current;
+    if(!el)return;
+    if(document.fullscreenElement===el)void document.exitFullscreen().catch(()=>{});
+    else void el.requestFullscreen().catch(()=>{});
+  };
+
+  return <div ref={cameraPanel} className={`camera-panel ${compact?'camera-panel-compact':''}`}>
+    <div className="camera-panel-heading">
+      <div>
+        <strong className="camera-panel-title">📷 カメラ体感操作</strong>
+        <span className={`camera-state ${status==='pose'?'is-pose':status==='basic'?'is-basic':status==='error'?'is-error':''}`}>
+          {status==='pose'?'● 姿勢認識中':status==='basic'?'● 簡易認識中':status==='loading'?'● 準備中':status==='error'?'● 接続エラー':'○ 停止中'}
+        </span>
+      </div>
+      <div className="camera-actions">
+        <button type="button" className="camera-button camera-start-button" disabled={status==='loading'} onClick={running.current?stop:start}>{running.current?'■ 停止':'▶ カメラ開始'}</button>
+        <button type="button" className="camera-button camera-secondary-button" title="映像を大きく表示" onClick={fullCamera}>⛶ 映像拡大</button>
       </div>
     </div>
-    <div className={`relative mt-2 aspect-video overflow-hidden rounded-lg bg-black ${status==='off'||status==='error'?'hidden':''}`}>
-      <video ref={video} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-cover" />
-      <canvas ref={overlay} width={320} height={240} className="pointer-events-none absolute inset-0 h-full w-full -scale-x-100" />
+    <div className="camera-video-surface">
+      <video ref={video} autoPlay playsInline muted className="camera-video" />
+      <canvas ref={overlay} width={640} height={480} className="camera-skeleton" aria-hidden="true" />
+      {guides && <div className="camera-center-guide" aria-hidden="true"><span>中央に立つ</span></div>}
+      {(status==='off'||status==='loading'||status==='error') && <div className="camera-placeholder" aria-live="polite">
+        <div className="camera-placeholder-icon">📷</div>
+        <strong>{status==='loading'?'カメラを準備しています…':status==='error'?'カメラを確認してください':'カメラを開始してください'}</strong>
+        <span>{status==='error'?info:'人物が中央に映るよう、少し離れてください'}</span>
+      </div>}
+      {(status==='pose'||status==='basic') && <div className="camera-live-label">● LIVE ・ この端末だけに表示</div>}
     </div>
-    <p className="mt-2 text-xs text-sky-200">{info}</p>
-    <p className="mt-1 text-[11px] text-slate-400">人物をカメラ中央に写して開始。左右へ体を動かし、前後に近づく・離れる（ダブルスのみ）か腕を振って打球。映像は送信・録画されません。室内で十分な間隔をとってください。</p>
+    <div className="camera-help">
+      <p role="status" className="camera-status-info">{info}</p>
+      <div className="camera-quick-actions">
+        {(status==='pose'||status==='basic') && <button type="button" className="camera-button camera-secondary-button" onClick={()=>{center.current=null;baseShoulder.current=null;prevWrists.current=null}}>🎯 中心を再設定</button>}
+        <button type="button" className="camera-button camera-secondary-button" onClick={()=>setGuides(v=>!v)}>{guides?'ガイドを隠す':'ガイドを表示'}</button>
+      </div>
+      <p className="camera-instructions">左右に体を動かして移動、腕を振ってショット。全身が切れない位置で操作してください。映像は送信・録画されません。</p>
+    </div>
   </div>;
 }

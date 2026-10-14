@@ -70,25 +70,34 @@ function drawHuman(ctx:CanvasRenderingContext2D,p:Player,index:number,now:number
   ctx.restore();
   ctx.restore();
 
-  ctx.fillStyle='#fff';ctx.font='bold 20px system-ui';ctx.textAlign='center';ctx.fillText(label,p.x,p.y-46);
-  ctx.fillStyle='#082f49';ctx.fillRect(p.x-30,p.y+39,60,7);ctx.fillStyle=p.power>=99?'#fde047':'#67e8f9';ctx.fillRect(p.x-30,p.y+39,60*p.power/100,7);
+  // A dark name plate remains readable on any court colour.
+  ctx.font='800 19px system-ui';
+  const nameWidth=Math.max(58,ctx.measureText(label).width+22);
+  ctx.fillStyle='rgba(7,22,42,.92)';ctx.beginPath();ctx.roundRect(p.x-nameWidth/2,p.y-109,nameWidth,29,9);ctx.fill();
+  ctx.strokeStyle=COLORS[index];ctx.lineWidth=2;ctx.stroke();
+  ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,p.x,p.y-94);
+  ctx.fillStyle='#07182a';ctx.beginPath();ctx.roundRect(p.x-32,p.y+39,64,10,4);ctx.fill();
+  ctx.fillStyle=p.power>=90?'#fef08a':'#7ceefb';ctx.beginPath();ctx.roundRect(p.x-30,p.y+41,60*p.power/100,6,3);ctx.fill();
 }
 
 function drawCourt(ctx:CanvasRenderingContext2D,w:World,now:number,seat:number,practice:boolean,legend:boolean) {
   const sky=ctx.createLinearGradient(0,0,WIDTH,HEIGHT);
-  sky.addColorStop(0,'#092b3f');sky.addColorStop(1,'#101b38');
+  sky.addColorStop(0,'#0d3450');sky.addColorStop(1,'#0a1932');
   ctx.fillStyle=sky;ctx.fillRect(0,0,WIDTH,HEIGHT);
-  ctx.fillStyle='#0c4362';ctx.fillRect(38,62,1124,608);
-  ctx.fillStyle='#0c727b';ctx.fillRect(LEFT,TOP,RIGHT-LEFT,BOTTOM-TOP);
-  ctx.fillStyle='#117f88';ctx.fillRect(LEFT,TOP,NET_X-LEFT,BOTTOM-TOP);
-  ctx.fillStyle='#087482';ctx.fillRect(NET_X,TOP,RIGHT-NET_X,BOTTOM-TOP);
+  ctx.fillStyle='#083853';ctx.fillRect(38,62,1124,608);
+  ctx.fillStyle='#0c7894';ctx.fillRect(LEFT,TOP,RIGHT-LEFT,BOTTOM-TOP);
+  ctx.fillStyle='#15879c';ctx.fillRect(LEFT,TOP,NET_X-LEFT,BOTTOM-TOP);
+  ctx.fillStyle='#146c99';ctx.fillRect(NET_X,TOP,RIGHT-NET_X,BOTTOM-TOP);
   // alternate service lanes
-  ctx.fillStyle='rgba(255,255,255,.045)';ctx.fillRect(LEFT,TOP,NET_X-LEFT,(BOTTOM-TOP)/2);
+  ctx.fillStyle='rgba(255,255,255,.08)';ctx.fillRect(LEFT,TOP,NET_X-LEFT,(BOTTOM-TOP)/2);
   ctx.fillRect(NET_X,(BOTTOM+TOP)/2,RIGHT-NET_X,(BOTTOM-TOP)/2);
-  ctx.strokeStyle='rgba(240,255,255,.83)';ctx.lineWidth=4;
+  ctx.strokeStyle='rgba(255,255,255,.97)';ctx.lineWidth=4;
   ctx.strokeRect(LEFT,TOP,RIGHT-LEFT,BOTTOM-TOP);
   ctx.beginPath();ctx.moveTo(LEFT,360);ctx.lineTo(RIGHT,360);ctx.moveTo(LEFT+95,TOP);ctx.lineTo(LEFT+95,BOTTOM);
   ctx.moveTo(RIGHT-95,TOP);ctx.lineTo(RIGHT-95,BOTTOM);ctx.moveTo(362,TOP);ctx.lineTo(362,BOTTOM);ctx.moveTo(838,TOP);ctx.lineTo(838,BOTTOM);ctx.stroke();
+  // Outer boundary contrast helps distinguish lines from the background.
+  ctx.strokeStyle='rgba(3,18,38,.52)';ctx.lineWidth=7;ctx.strokeRect(LEFT-4,TOP-4,RIGHT-LEFT+8,BOTTOM-TOP+8);
+  ctx.strokeStyle='#f8fafc';ctx.lineWidth=4;ctx.strokeRect(LEFT,TOP,RIGHT-LEFT,BOTTOM-TOP);
   // net
   ctx.fillStyle='rgba(242,246,255,.95)';ctx.fillRect(NET_X-5,TOP-10,10,BOTTOM-TOP+20);
   ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=1;
@@ -102,20 +111,36 @@ function drawCourt(ctx:CanvasRenderingContext2D,w:World,now:number,seat:number,p
     drawHuman(ctx,p,i,now,isMe,label);
   }
   const b=w.ball;
+  if(w.phase==='play'&&b.z>0&&b.vz<250){
+    // Predict where the ball will land, to make rallies easier to follow.
+    const t=(b.vz+Math.sqrt(b.vz*b.vz+1900*b.z))/950;
+    const px=b.x+b.vx*t,py=b.y+b.vy*t;
+    if(t>0&&t<1.4&&px>LEFT+8&&px<RIGHT-8&&py>TOP+8&&py<BOTTOM-8){
+      ctx.save();ctx.setLineDash([6,5]);ctx.lineWidth=3;ctx.strokeStyle='rgba(255,246,132,.96)';
+      ctx.beginPath();ctx.ellipse(px,py,23,13,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle='rgba(255,246,132,.20)';ctx.beginPath();ctx.ellipse(px,py,17,9,0,0,Math.PI*2);ctx.fill();ctx.restore();
+    }
+  }
   if(w.phase!=='lobby'){
     b.trail.forEach((pt,i)=>{ctx.globalAlpha=(i/b.trail.length)*.5;ctx.fillStyle=b.power?'#fde047':'#c7f9a0';ctx.beginPath();ctx.arc(pt.x,pt.y-pt.z*.22,4+(i/b.trail.length)*7,0,7);ctx.fill();});ctx.globalAlpha=1;
     ctx.fillStyle='rgba(0,0,0,.26)';ctx.beginPath();ctx.ellipse(b.x+3,b.y+6,13,7,0,0,7);ctx.fill();
-    ctx.fillStyle=b.power?'#fff8a0':'#efff70';ctx.shadowColor=b.power?'#f59e0b':'#bef264';ctx.shadowBlur=b.power?28:14;
-    ctx.beginPath();ctx.arc(b.x,b.y-b.z*.36,11,0,7);ctx.fill();ctx.shadowBlur=0;
-    ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(b.x,b.y-b.z*.36,11,-1.1,1.1);ctx.stroke();
+    ctx.fillStyle=b.power?'#fff8a0':'#efff70';ctx.shadowColor=b.power?'#f59e0b':'#e6fc83';ctx.shadowBlur=b.power?28:18;
+    ctx.beginPath();ctx.arc(b.x,b.y-b.z*.36,12,0,7);ctx.fill();ctx.shadowBlur=0;
+    ctx.strokeStyle='#0b2740';ctx.lineWidth=2.6;ctx.stroke();
+    ctx.strokeStyle='#fff';ctx.lineWidth=1.8;ctx.beginPath();ctx.arc(b.x,b.y-b.z*.36,10,-1.1,1.1);ctx.stroke();
   }
-  if(w.phase==='lobby'||w.phase==='countdown'||w.phase==='point'||w.phase==='ended'){
-    ctx.fillStyle='rgba(4,18,38,.72)';ctx.fillRect(315,268,570,160);
-    ctx.textAlign='center';ctx.fillStyle='#f8fafc';ctx.font='900 44px system-ui';
-    const main = w.phase==='lobby'?'4人でオンラインダブルス':w.phase==='countdown'?'READY!':w.phase==='point'?w.message:`${w.winner===0?'レッド':'イエロー'}チーム勝利！`;
-    ctx.fillText(main,600,338);
-    ctx.font='700 25px system-ui';ctx.fillStyle='#bcecff';
-    ctx.fillText(w.phase==='countdown'?`サーブまで ${Math.max(1,Math.ceil(w.countdown))}`:w.phase==='lobby'?'2 vs 2 ・ 必殺スマッシュ ・ カメラ操作':w.phase==='point'?'NEXT POINT':'7点先取！',600,382);
+  if(w.phase==='lobby'){
+    // Place the waiting message above the court rather than over the players.
+    ctx.fillStyle='#baf0fc';ctx.textAlign='center';ctx.font='800 21px system-ui';
+    ctx.fillText('4人ダブルス：部屋に参加、またはCPUと練習',600,83);
+  }else if(w.phase==='countdown'||w.phase==='point'||w.phase==='ended'){
+    ctx.fillStyle='rgba(4,18,38,.87)';ctx.beginPath();ctx.roundRect(310,282,580,150,19);ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.23)';ctx.lineWidth=2;ctx.stroke();
+    ctx.textAlign='center';ctx.fillStyle='#f8fafc';ctx.font='900 42px system-ui';
+    const main=w.phase==='countdown'?'READY!':w.phase==='point'?w.message:`${w.winner===0?'レッド':'イエロー'}チーム勝利！`;
+    ctx.fillText(main,600,346);
+    ctx.font='700 23px system-ui';ctx.fillStyle='#bcecff';
+    ctx.fillText(w.phase==='countdown'?`サーブまで ${Math.max(1,Math.ceil(w.countdown))}`:w.phase==='point'?'NEXT POINT':'7点先取！',600,389);
   }
   ctx.fillStyle='#f8fafc';ctx.font='bold 17px system-ui';ctx.textAlign='left';
   ctx.fillText(`🎾 ${phaseJapanese[w.phase]}  /  連続ラリー ${w.rally}  /  最長 ${w.best}`,68,42);
@@ -131,6 +156,8 @@ export default function DoublesArena({onBack}:{onBack:()=>void}) {
   const [practice,setPractice]=useState(false);
   const [legend,setLegend]=useState(false);
   const [cameraEnabled,setCameraEnabled]=useState(false);
+  const [focusMode,setFocusMode]=useState(false);
+  const playWorkspace=useRef<HTMLDivElement>(null);
   const [copied,setCopied]=useState(false);
   const [score,setScore]=useState<[number,number]>([0,0]);
   const [phase,setPhase]=useState<Phase>('lobby');
@@ -377,19 +404,20 @@ export default function DoublesArena({onBack}:{onBack:()=>void}) {
     catch{setNotice(`招待リンク：${url}`);}
   };
   const myTeam=seat<0?'':TEAM(seat)===0?'レッド':'イエロー';
+  const togglePlayFullscreen=()=>{const el=playWorkspace.current;if(!el)return;if(document.fullscreenElement===el)void document.exitFullscreen().catch(()=>{});else void el.requestFullscreen().catch(()=>{});};
   const pad = (label:string, code:string, accent=false) => <button key={code} className={`rounded-lg select-none touch-none px-4 py-3 text-sm font-black active:scale-95 ${accent?'bg-amber-400 text-slate-950':'bg-slate-700 text-white'}`}
     onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);buttons.current[code]=true;}}
     onPointerUp={()=>{buttons.current[code]=false;}}
     onPointerCancel={()=>{buttons.current[code]=false;}}
     onLostPointerCapture={()=>{buttons.current[code]=false;}}>{label}</button>;
-  return <div className="min-h-screen bg-[#081426] text-slate-100 px-3 py-5 md:p-7">
-    <div className="mx-auto max-w-6xl">
-      <header className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div><div className="flex items-center gap-3"><button className="rounded-xl bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700" onClick={onBack}>← 通常のゲームに戻る</button><h1 className="text-2xl font-black">🎾 テニス・ダブルス ARENA</h1></div>
+  return <div className={`game-doubles-page min-h-screen bg-[#081426] text-slate-100 px-3 py-5 md:p-7 ${cameraEnabled?'game-doubles-with-camera':''} ${focusMode?'game-doubles-focus':''} ${phase!=='lobby'?'game-doubles-match-live':''}`}>
+    <div className="game-doubles-content mx-auto max-w-6xl">
+      <header className="game-doubles-header flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div><div className="flex flex-wrap items-center gap-3"><button className="rounded-xl bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700" onClick={onBack}>← 通常のゲームに戻る</button><h1 className="text-2xl font-black">🎾 テニス・ダブルス ARENA</h1></div>
         <p className="mt-1 text-sm text-cyan-200">オンライン4人対戦 / カメラ体感操作 / 伝説級CPU / 必殺スマッシュ</p></div>
         <span className="rounded-full border border-sky-500/40 bg-sky-950 px-4 py-2 text-sm font-bold">{practice?'CPU練習':status==='ready'?'4人揃いました！':status==='waiting'?`参加中 ${roster.length}/4人`:status==='connecting'?'接続中':'オンライン待機'}</span>
       </header>
-      <section className="mb-4 rounded-2xl border border-cyan-700/50 bg-slate-900 p-4">
+      <section className="game-online-panel mb-4 rounded-2xl border border-cyan-700/50 bg-slate-900 p-4" aria-label="オンライン部屋の設定">
         <div className="flex flex-wrap gap-3 items-end">
           <label className="text-xs font-bold text-slate-300">4人共通の部屋コード<input className="block mt-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-white" value={room} onChange={e=>setRoom(e.target.value.toUpperCase())} disabled={status!=='off'} maxLength={24} /></label>
           <button className="rounded-lg bg-cyan-400 px-4 py-2 font-black text-slate-950 disabled:opacity-40" disabled={status==='connecting'} onClick={status==='off'?connect:disconnect}>{status==='off'?'🌐 ルームに参加':'🔌 切断'}</button>
@@ -398,28 +426,35 @@ export default function DoublesArena({onBack}:{onBack:()=>void}) {
           <button className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-black hover:bg-rose-500" onClick={()=>startPractice(true)}>👑 伝説級AIに挑戦</button>
         </div>
         <p role="status" className="mt-3 text-sm text-amber-200">{notice}</p>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="game-seat-grid mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[0,1,2,3].map(i=><div key={i} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${roster.includes(i)||practice?'border-cyan-500 bg-sky-950':'border-slate-700 bg-slate-800/60 text-slate-400'}`}>
             {i+1}P・{TEAM(i)===0?'🔴 レッド':'🟡 イエロー'} {practice?(i===0?'あなた':'CPU'):roster.includes(i)?i===seat?'あなた':'参加済み':'空席'}</div>)}
         </div>
       </section>
-      <section className="relative overflow-hidden rounded-2xl border-2 border-sky-800 shadow-2xl">
-        <canvas ref={canvas} width={WIDTH} height={HEIGHT} aria-label="ダブルスのテニスコート" className="block w-full" />
-        <div className="absolute left-3 top-3 rounded-xl bg-slate-950/70 px-4 py-2 text-sm font-black sm:text-xl"><span className="text-rose-300">🔴 {score[0]}</span> <span className="text-white">―</span> <span className="text-yellow-300">{score[1]} 🟡</span></div>
-        <div className="absolute bottom-3 right-3 rounded bg-slate-950/70 px-3 py-2 text-xs">{myTeam?`あなた：${seat+1}P ${myTeam}`:'4人でダブルス'} ・ {phaseJapanese[phase]} ・ラリー{rally}</div>
-      </section>
-      <div className="my-4 flex flex-wrap items-center gap-3">
+      <div className="game-match-actions my-4 flex flex-wrap items-center gap-3">
         <button className="rounded-xl bg-amber-400 px-7 py-3 font-black text-slate-950 disabled:opacity-40" disabled={!(practice || status==='ready'&&seat===0)} onClick={startGame}>🏁 {phase==='ended'?'もう一度プレイ':'試合開始！'}</button>
         <button className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm hover:bg-slate-800 disabled:opacity-40" disabled={!practice&&seat!==0} onClick={resetGame}>↩ 試合リセット</button>
-        <button className="rounded-xl border border-sky-600 bg-sky-950 px-4 py-3 font-bold text-sm" onClick={()=>setCameraEnabled(v=>!v)}>{cameraEnabled?'📷 カメラパネルを閉じる':'📷 カメラ操作を使う'}</button>
+        <button type="button" className="rounded-xl border border-violet-500 bg-violet-950 px-4 py-3 font-bold text-sm" onClick={()=>setFocusMode(v=>!v)}>{focusMode?'🖥 部屋設定も表示':'🖥 大画面に収める'}</button>
+        <button className="rounded-xl border border-sky-600 bg-sky-950 px-4 py-3 font-bold text-sm" onClick={()=>{setCameraEnabled(v=>!v);setFocusMode(true);}}>{cameraEnabled?'📷 カメラを閉じる':'📷 大きなカメラを表示'}</button>
       </div>
-      {cameraEnabled && <div className="mb-4"><MotionCamera compact onKeys={k=>{camera.current=k;}} /></div>}
-      <div className="mb-4 flex flex-wrap gap-2 rounded-xl border border-slate-700 bg-slate-900/80 p-3">
+      <div ref={playWorkspace} className={`game-doubles-play-grid ${cameraEnabled?'with-camera':'without-camera'}`}>
+      <section className="game-arena-section rounded-2xl border-2 border-sky-700 shadow-2xl" aria-label="対戦画面">
+        <div className="game-scoreboard" aria-label={`スコア レッド${score[0]}点、イエロー${score[1]}点`}>
+          <div className="game-score-team game-red-team"><span className="game-team-name">🔴 レッド <small>1P + 3P</small></span><strong>{score[0]}</strong></div>
+          <span className="game-score-divider" aria-hidden="true">VS</span>
+          <div className="game-score-team game-yellow-team"><strong>{score[1]}</strong><span className="game-team-name">🟡 イエロー <small>2P + 4P</small></span></div>
+        </div>
+        <canvas ref={canvas} width={WIDTH} height={HEIGHT} aria-label="ダブルスのテニスコート" className="game-doubles-canvas block w-full" />
+        <div className="game-arena-status" role="status"><span>{myTeam?`操作中：${seat+1}P・${myTeam}チーム`:practice?'CPU練習中':'4人でダブルス'}</span><span>{phaseJapanese[phase]}</span><span>ラリー {rally} 回</span><button type="button" onClick={togglePlayFullscreen} className="game-doubles-expand">⛶ 全画面 / 戻す</button></div>
+      </section>
+      {cameraEnabled && <aside className="game-camera-column"><MotionCamera onKeys={k=>{camera.current=k;}} /></aside>}
+      </div>
+      <div className="game-touch-pad mb-4 flex flex-wrap gap-2 rounded-xl border border-slate-700 bg-slate-900/80 p-3">
         <span className="w-full text-xs font-semibold text-cyan-200">📱 スマホ・タブレット用タッチ操作</span>
         {pad('←','ArrowLeft')}{pad('↑','ArrowUp')}{pad('↓','ArrowDown')}{pad('→','ArrowRight')}
         {pad('🎾 打つ','KeyQ',true)}{pad('🎈 ロブ','KeyE')}{pad('💥 必殺','KeyF')}{pad('⚡ ダッシュ','ShiftLeft')}
       </div>
-      <div className="grid gap-3 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm md:grid-cols-2">
+      <div className="game-instructions grid gap-3 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm md:grid-cols-2">
         <div><strong className="text-cyan-300">ゲーム操作</strong><p className="mt-2 text-slate-300">WASD / 矢印：移動、Q / Space：ショット、E：ロブ、F：パワー100で必殺スマッシュ、Shift：ダッシュ。カメラ操作との併用も可能です。</p></div>
         <div><strong className="text-cyan-300">オンラインで遊ぶ方法</strong><p className="mt-2 text-slate-300">1人目が部屋を作成→招待リンクを3人に送る→4人が参加→1Pが試合開始。1Pと3P対2Pと4Pのチーム戦です。7点先取で勝利！</p></div>
       </div>

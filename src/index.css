@@ -1,1 +1,285 @@
 @import "tailwindcss";
+
+:root {
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+  color-scheme: dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+html { scroll-behavior: smooth; }
+body { margin: 0; min-width: 320px; background: #071426; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+button, input { font: inherit; }
+button:focus-visible, input:focus-visible, canvas:focus-visible, a:focus-visible {
+  outline: 3px solid #67e8f9;
+  outline-offset: 3px;
+}
+button:not(:disabled) { transition: background-color .16s ease, border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
+button:not(:disabled):active { transform: scale(.985); }
+
+/* A real setup page is easier to read than a tiny scrolling overlay in a 1280x620 canvas. */
+.game-stage { box-shadow: 0 18px 60px rgba(0,0,0,.28); }
+.game-stage-setup { aspect-ratio: auto; overflow: visible; }
+.game-setup-panel {
+  border-radius: 16px;
+  background: radial-gradient(ellipse at top, #152d48 0%, #0b1a2f 58%, #081426 100%);
+}
+.game-setup-panel h2 { line-height: 1.4; }
+.game-setup-panel p { line-height: 1.65; }
+.game-setup-panel [class*="text-[10px]"] { font-size: 12px; }
+.game-setup-panel [class*="text-[11px]"] { font-size: 12px; }
+.game-setup-panel .game-player-cards > div {
+  background: rgba(12,30,52,.97);
+  border-width: 2px;
+  padding: clamp(12px, 1.8vw, 22px);
+}
+.game-setup-panel .game-player-cards > div > div:first-child .grid button { min-height: 70px; }
+.game-setup-panel .game-player-cards .space-y-2 > div { padding: 9px 10px; }
+.game-mode-button { min-height: 49px; line-height: 1.35; }
+.game-mode-button:hover:not(:disabled) { transform: translateY(-1px); }
+.game-mode-button:focus-visible { outline-offset: 2px; }
+.game-stat-button { flex: 0 0 32px; }
+
+.game-header {
+  background: linear-gradient(90deg, rgba(14,35,58,.88), rgba(10,28,47,.45));
+  border-radius: 16px 16px 8px 8px;
+  padding: 12px 14px 15px;
+}
+.game-toolbar { row-gap: 8px; }
+.game-toolbar button { min-height: 42px; }
+.game-primary-navigation { border: 1px solid rgba(255,255,255,.22); box-shadow: 0 4px 14px rgba(244,63,94,.18); }
+
+/* Double's score has its own row: the ball, players and court are never covered by UI cards. */
+.game-doubles-page {
+  background: radial-gradient(circle at 50% 0%, #143657, #09182d 40%, #071426 100%);
+}
+.game-doubles-header { padding-bottom: 14px; border-bottom: 1px solid #335875; }
+.game-doubles-header h1 { letter-spacing: .02em; line-height: 1.35; }
+.game-online-panel { background: linear-gradient(160deg, #132c48, #0b1c34); box-shadow: 0 8px 28px rgba(0,0,0,.18); }
+.game-online-panel input { min-height: 44px; min-width: 160px; font-size: 17px; letter-spacing: .09em; }
+.game-online-panel button { min-height: 44px; line-height: 1.45; }
+.game-seat-grid > div { font-size: 13px; min-height: 52px; display: flex; align-items: center; }
+.game-arena-section { overflow: hidden; background: #08192c; }
+.game-scoreboard {
+  min-height: 96px; display: flex; align-items: center; justify-content: center;
+  gap: clamp(12px, 3vw, 50px); padding: 12px 20px;
+  background: linear-gradient(90deg, #142f4f, #0b1b33 48%, #17304b);
+  border-bottom: 1px solid #48728f;
+}
+.game-score-team { display: flex; align-items: center; gap: clamp(12px, 2.5vw, 28px); }
+.game-team-name { font-size: clamp(15px, 1.5vw, 21px); font-weight: 900; color: #f8fafc; }
+.game-team-name small { display: block; font-size: 12px; font-weight: 650; color: #cbd5e1; padding-top: 2px; }
+.game-score-team strong {
+  font-size: clamp(30px, 4.2vw, 57px); line-height: 1; font-variant-numeric: tabular-nums;
+  background: #061424; padding: 8px 18px; border-radius: 13px;
+  min-width: 73px; text-align: center;
+}
+.game-red-team strong { color: #ff92a4; border: 1px solid #b94869; }
+.game-yellow-team strong { color: #ffda62; border: 1px solid #a97920; }
+.game-score-divider { font-weight: 900; letter-spacing: .12em; color: #a9d4ec; font-size: 18px; }
+.game-doubles-canvas { width: 100%; height: auto; background: #113d5f; }
+.game-arena-status {
+  display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between;
+  padding: 11px 18px; color: #e6f6ff; font-size: 14px; font-weight: 750;
+  background: #10243d; border-top: 1px solid #416b88;
+}
+.game-arena-status span:not(:last-child)::after { content: ' · '; color: #89adc6; }
+.game-match-actions button { min-height: 48px; }
+.game-match-actions > button:first-child { font-size: 17px; padding: 13px 22px; box-shadow: 0 4px 20px rgba(250,204,21,.18); }
+.game-touch-pad { gap: 10px; }
+.game-touch-pad button { min-width: 58px; min-height: 51px; border: 1px solid rgba(255,255,255,.18); }
+.game-instructions { line-height: 1.85; }
+.game-instructions strong { font-size: 15px; }
+
+@media (max-width: 760px) {
+  .game-header { align-items: stretch; }
+  .game-header > div:first-child { width: 100%; }
+  .game-toolbar { width: 100%; }
+  .game-toolbar > button { flex-grow: 1; justify-content: center; }
+  .game-primary-navigation { flex-basis: 50%; }
+  .game-setup-panel { padding: 14px; gap: 12px; }
+  .game-setup-panel .game-player-cards { gap: 14px; }
+  .game-setup-panel .game-player-cards > div > div:first-child .grid button { min-height: 76px; }
+  .game-doubles-header h1 { font-size: 21px; }
+  .game-scoreboard { min-height: 72px; gap: 10px; padding: 9px; }
+  .game-score-team { gap: 7px; }
+  .game-score-team strong { min-width: 45px; padding: 9px 11px; }
+  .game-score-divider { font-size: 13px; }
+  .game-team-name small { font-size: 10px; }
+  .game-seat-grid > div { padding: 9px 12px; }
+  .game-arena-status { padding: 9px 12px; font-size: 12px; }
+  .game-touch-pad button { min-width: 58px; flex: 1 0 20%; }
+}
+@media (max-width: 440px) {
+  .game-team-name { font-size: 13px; }
+  .game-team-name small { font-size: 9px; }
+  .game-score-team strong { font-size: 29px; min-width: 40px; }
+  .game-scoreboard { gap: 7px; }
+  .game-arena-status { justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  button { transition: none !important; }
+}
+
+/* v1.3: clear, large camera preview with no accidental 16:9 crop. */
+.camera-panel {
+  box-sizing: border-box;
+  width: 100%; min-width: 0;
+  background: #0c1c31;
+  color: #f1f8ff;
+  border: 2px solid #28769a;
+  border-radius: 18px;
+  padding: clamp(10px, 1.3vw, 18px);
+  box-shadow: 0 16px 38px rgba(0,0,0,.26);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.camera-panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.camera-panel-title { display: block; font-size: clamp(17px,1.5vw,23px); line-height: 1.3; }
+.camera-state { display: inline-block; margin-top: 5px; font-size: 13px; color: #cbd5e1; font-weight: 800; }
+.camera-state.is-pose { color: #5df0ae; }
+.camera-state.is-basic { color: #facc15; }
+.camera-state.is-error { color: #fca5a5; }
+.camera-actions, .camera-quick-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.camera-button {
+  min-height: 42px; border: 1px solid #52718c; border-radius: 10px;
+  padding: 8px 13px; background: #193954; color: #f7fbff;
+  font-size: 13px; font-weight: 800;
+}
+.camera-button:disabled { opacity: .5; }
+.camera-button:hover:not(:disabled) { background: #23557b; }
+.camera-start-button { border-color: #fcd34d; background: #fcd34d; color: #101e30; }
+.camera-start-button:hover:not(:disabled) { background: #fde68a; }
+.camera-video-surface {
+  position: relative; width: 100%; aspect-ratio: 4 / 3;
+  border: 2px solid #77d4fa; border-radius: 12px; overflow: hidden;
+  background: #030a14;
+  box-shadow: 0 0 0 3px rgba(103,232,249,.13);
+}
+.camera-video, .camera-skeleton {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  transform: scaleX(-1); object-fit: contain;
+}
+.camera-skeleton { pointer-events: none; }
+.camera-center-guide {
+  position:absolute; inset:0; pointer-events:none;
+  border-left: 1px dashed rgba(255,255,255,.23);
+  left:50%; right:auto;
+}
+.camera-center-guide::before { content:''; position:absolute; top:39%; left:-12px; width:24px; height:24px; border:2px solid rgba(112,240,245,.73); border-radius:100%; }
+.camera-center-guide > span {
+  position:absolute; bottom:12%; left:0; transform:translateX(-50%);
+  white-space:nowrap; background:rgba(3,10,23,.78); color:#e5faff;
+  border:1px solid rgba(255,255,255,.35); border-radius:7px; padding:5px 10px;
+  font-weight:800; font-size:13px;
+}
+.camera-placeholder {
+  position:absolute; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:11px; padding:20px; text-align:center;
+  background:radial-gradient(circle at center,#123553,#050d1b);
+}
+.camera-placeholder-icon { font-size:clamp(36px,4vw,65px); }
+.camera-placeholder strong { font-size:clamp(16px,1.5vw,22px); }
+.camera-placeholder span { font-size:14px; color:#c9e7fa; }
+.camera-live-label {
+  position:absolute; left:10px; top:10px; background:rgba(3,20,32,.82); color:#bbffe3;
+  padding:5px 9px; border-radius:8px; font-size:12px; font-weight:800; pointer-events:none;
+}
+.camera-help { display:grid; gap:9px; }
+.camera-status-info { font-size:14px; color:#c5f1fe; line-height:1.55; font-weight:750; }
+.camera-instructions { font-size:13px; color:#cfdeec; line-height:1.7; }
+.camera-workspace-fullscreen, .game-doubles-expand {
+  border:1px solid #66ccf3; color:#e8f9ff; background:#15456c;
+  border-radius:10px; padding:11px 13px; font-size:14px; font-weight:900;
+}
+.camera-workspace-fullscreen { width:100%; margin-top:12px; }
+.camera-workspace-fullscreen:hover, .game-doubles-expand:hover { background:#22608b; }
+
+/* Classic singles + camera sit together instead of forcing the camera above the court. */
+.game-play-workspace { width:100%; max-width:1152px; margin:16px auto 0; min-width:0; }
+.game-play-workspace.with-camera { max-width:1800px; display:grid; grid-template-columns:minmax(0,1fr) minmax(340px,29%); align-items:center; gap:clamp(12px,1.6vw,24px); }
+.game-play-workspace.with-camera .game-classic-main { min-width:0; max-width:none; margin:0; padding:0; }
+.game-play-workspace.with-camera .game-stage:not(.game-stage-setup) {
+  width:min(100%,calc((100dvh - 195px) * 2.064516));
+  margin-inline:auto;
+}
+.game-play-workspace .game-camera-column { min-width:0; }
+.game-play-workspace:fullscreen {
+  width:100vw; max-width:none; min-height:100dvh; height:100dvh; overflow:auto;
+  padding:clamp(12px,1.7vw,30px);
+  background:#071426;
+  box-sizing:border-box;
+}
+.game-play-workspace.with-camera:fullscreen { grid-template-columns:minmax(0,1fr) minmax(355px,29%); }
+.game-play-workspace:fullscreen .game-stage:not(.game-stage-setup) { width:min(100%,calc((100dvh - 72px) * 2.064516)); }
+.game-play-workspace:fullscreen .camera-panel { max-height:calc(100dvh - 110px); overflow:auto; }
+.game-play-workspace:fullscreen .camera-video-surface { width:min(100%,calc((100dvh - 250px) * 1.33333)); margin:0 auto; }
+.game-play-workspace:fullscreen .game-camera-column { align-self:center; }
+
+/* Doubles: large camera preview next to the court, not a 320px thumbnail under it. */
+.game-doubles-with-camera .game-doubles-content, .game-doubles-focus .game-doubles-content { max-width:1840px; }
+.game-doubles-play-grid { width:100%; min-width:0; }
+.game-doubles-play-grid.with-camera {
+  display:grid; grid-template-columns:minmax(0,1fr) minmax(350px,29%);
+  align-items:center; gap:clamp(12px,1.5vw,24px);
+}
+.game-doubles-play-grid .game-arena-section { min-width:0; }
+.game-doubles-play-grid .game-camera-column { min-width:0; }
+.game-doubles-play-grid .camera-video-surface { width:100%; }
+.game-doubles-expand { padding:7px 10px; font-size:12px; min-height:32px; margin-left:auto; }
+.game-doubles-focus .game-arena-section { box-shadow:0 14px 50px rgba(0,0,0,.42); }
+.game-doubles-focus .game-match-actions { margin:9px 0; }
+.game-doubles-focus.game-doubles-match-live .game-online-panel { display:none; }
+.game-doubles-focus .game-instructions, .game-doubles-focus .game-touch-pad, .game-doubles-focus .game-doubles-content > p:last-child { display:none; }
+.game-doubles-focus .game-doubles-canvas { width:min(100%,calc((100dvh - 235px) * 1.66667)); margin-inline:auto; }
+.game-doubles-play-grid:fullscreen {
+  box-sizing:border-box; width:100vw; height:100dvh; overflow:auto; padding:clamp(12px,2vw,32px);
+  background:#081426; align-items:center;
+}
+.game-doubles-play-grid:fullscreen .game-doubles-canvas { width:min(100%,calc((100dvh - 165px) * 1.66667)); }
+.game-doubles-play-grid:fullscreen .camera-panel { max-height:calc(100dvh - 70px); overflow:auto; }
+.game-doubles-play-grid:fullscreen .camera-video-surface { width:min(100%,calc((100dvh - 220px) * 1.33333)); margin-inline:auto; }
+.camera-panel:fullscreen {
+  box-sizing:border-box; width:100vw; height:100dvh; max-height:100dvh;
+  border-radius:0; padding:clamp(14px,2vw,30px); overflow:auto;
+  background:#071426; align-items:center;
+}
+.camera-panel:fullscreen > * { width:min(100%,1050px); }
+.camera-panel:fullscreen .camera-video-surface { width:min(100%,calc((100dvh - 230px) * 1.33333)); height:auto; aspect-ratio:4/3; }
+
+@media (max-width:1050px) {
+  .game-play-workspace.with-camera, .game-play-workspace.with-camera:fullscreen,
+  .game-doubles-play-grid.with-camera { display:flex; flex-direction:column; align-items:stretch; }
+  .game-play-workspace.with-camera .game-classic-main { width:100%; }
+  .game-play-workspace.with-camera .game-stage:not(.game-stage-setup) { width:100%; }
+  .game-play-workspace .game-camera-column, .game-doubles-play-grid .game-camera-column { width:min(100%,650px); align-self:center; }
+  .game-play-workspace.with-camera:fullscreen .game-stage:not(.game-stage-setup) { width:min(100%,calc((100dvh - 360px) * 2.064516)); }
+  .game-play-workspace:fullscreen .camera-panel { max-height:none; }
+  .game-doubles-play-grid:fullscreen .game-arena-section { width:100%; }
+}
+@media (max-width:600px) {
+  .camera-panel { padding:10px; gap:9px; }
+  .camera-video-surface { border-radius:8px; }
+  .camera-button { font-size:12px; min-height:40px; }
+  .camera-center-guide > span { font-size:11px; }
+  .game-play-workspace { margin-top:10px; }
+  .game-doubles-focus .game-touch-pad { display:flex; }
+  .game-doubles-focus .game-arena-status { justify-content:center; }
+  .game-doubles-play-grid:fullscreen { padding:8px; }
+}
+/* Keep the scoreboard and court inside a shorter desktop viewport in focus mode. */
+.game-doubles-focus { padding-top:12px; padding-bottom:12px; }
+.game-doubles-focus .game-doubles-header { margin-bottom:8px; padding-bottom:8px; }
+.game-doubles-focus .game-scoreboard { min-height:70px; padding:7px 12px; }
+.game-doubles-focus .game-score-team strong { padding:5px 14px; font-size:clamp(28px,3.5vw,44px); }
+.game-doubles-focus .game-arena-status { padding:7px 13px; font-size:12px; }
+.game-doubles-focus .game-match-actions button { min-height:39px; padding:8px 14px; }
+@media (min-width:1051px) and (max-height:780px) {
+  .game-play-workspace.with-camera .camera-panel { gap:7px; padding:11px; }
+  .game-play-workspace.with-camera .camera-video-surface { width:min(100%,calc((100dvh - 310px) * 1.33333)); margin-inline:auto; }
+  .game-play-workspace.with-camera .camera-help { gap:5px; }
+  .game-doubles-focus .game-doubles-canvas { width:min(100%,calc((100dvh - 190px) * 1.66667)); }
+}
