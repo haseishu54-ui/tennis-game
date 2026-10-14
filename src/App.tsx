@@ -4,6 +4,8 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import MotionCamera from './MotionCamera';
+import DoublesArena from './DoublesArena';
 import { 
   Volume2, 
   VolumeX, 
@@ -212,15 +214,16 @@ const STAT_CONFIG = [
   { key: 'car', name: 'キャリー力', desc: '届かない遠いボールも吸い込む守備範囲', icon: Shield },
 ] as const;
 
-export default function App() {
+function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [soundOn, setSoundOn] = useState(true);
   const [touchControls, setTouchControls] = useState(false);
   const [showShotGuide, setShowShotGuide] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
 
   // Game UI state
-  const [mode, setMode] = useState<number>(1); // 0=2人対戦, 1=かんたん, 2=ふつう, 3=つよい, 4=オンライン対戦
+  const [mode, setMode] = useState<number>(1); // 0=ローカル, 1..3=CPU, 4=シングルスオンライン, 5=伝説級CPU
   const [styles, setStyles] = useState<['front' | 'back', 'front' | 'back']>(['front', 'back']);
   const [p1EV, setP1EV] = useState<EffortValues>({ spd: 3, jmp: 2, pow: 3, tec: 2, car: 2 });
   const [p2EV, setP2EV] = useState<EffortValues>({ spd: 3, jmp: 1, pow: 4, tec: 2, car: 2 });
@@ -661,6 +664,8 @@ export default function App() {
       { spdMul: 0.70, err: 90, noise: 0.12, lob: 0.22, miss: 0.20 },
       { spdMul: 0.88, err: 40, noise: 0.05, lob: 0.35, miss: 0.07 },
       { spdMul: 1.00, err: 10, noise: 0.02, lob: 0.45, miss: 0.015 },
+      null, // mode 4 is online
+      { spdMul: 1.7, err: 0, noise: 0, lob: 0.57, miss: 0 }, // legendary AI
     ];
     const ai = { hitId: -1, kind: "n", sp: 0.5, err: 0, noise: 0, skip: false };
 
@@ -688,7 +693,7 @@ export default function App() {
       }
     }
 
-    const nameOf = (i: number) => (i === 1 && liveGameRef.current.mode >= 1 && liveGameRef.current.mode <= 3 ? "CPU" : `${i + 1}P`);
+    const nameOf = (i: number) => (i === 1 && ((liveGameRef.current.mode >= 1 && liveGameRef.current.mode <= 3) || liveGameRef.current.mode === 5) ? "CPU" : `${i + 1}P`);
 
     function syncState() {
       setGameState(state);
@@ -914,10 +919,10 @@ export default function App() {
         { l: "ArrowLeft", r: "ArrowRight", u: "ArrowUp", n: ["Slash"], b: ["Backslash", "IntlBackslash", "IntlRo", "IntlYen"] },
       ];
       const curMode = liveGameRef.current.mode;
-      const bothKeySets = isOnlineMatch || (curMode >= 1 && curMode <= 3 && i === 0);
+      const bothKeySets = isOnlineMatch || ((curMode >= 1 && curMode <= 3 || curMode === 5) && i === 0);
       const useSets = bothKeySets ? KEYSETS : [KEYSETS[i]];
       // CPU の席は仮想キー(cpuKeys)だけを見る。人間の席はキーボード/タッチだけを見る
-      const isCpuSeat = curMode >= 1 && curMode <= 3 && i === 1;
+      const isCpuSeat = ((curMode >= 1 && curMode <= 3) || curMode === 5) && i === 1;
       const pressed = (k: string) => isCpuSeat ? !!cpuKeys[k] : !!(keys[k] || activeTouchKeys.current[k]);
 
       const isR = useSets.some((s) => pressed(s.r));
@@ -932,7 +937,8 @@ export default function App() {
       const speedBonus = 1 + (p.ev.spd * 0.12);
 
       const toward = dx === (i === 0 ? 1 : -1);
-      const spd = st.spd * (toward ? st.fwd : st.bwd) * (p.sw >= 0 ? st.swingMul : 1) * (p.spdMul || 1) * speedBonus;
+      const dash = (pressed("ShiftLeft") || pressed("ShiftRight")) && !isCpuSeat ? 1.4 : 1;
+      const spd = st.spd * (toward ? st.fwd : st.bwd) * (p.sw >= 0 ? st.swingMul : 1) * (p.spdMul || 1) * speedBonus * dash;
       p.x = Math.max(c.x0, Math.min(c.x1, p.x + dx * spd * dt));
 
       // ジャンプ (高さと地面に戻るまでの速さ) 努力値
@@ -1545,7 +1551,7 @@ export default function App() {
           }
         }
       } else {
-        if (liveGameRef.current.mode >= 1 && liveGameRef.current.mode <= 3) cpuThink();
+        if ((liveGameRef.current.mode >= 1 && liveGameRef.current.mode <= 3) || liveGameRef.current.mode === 5) cpuThink();
         movePlayers(dt);
         if (state === "serve") { 
           timer -= dt; 
@@ -2112,6 +2118,8 @@ export default function App() {
       } else {
         setP2EV({ spd: 3, jmp: 0, pow: 5, tec: 2, car: 2 });
       }
+    } else if (mode === 5) {
+      setP2EV({ spd: 5, jmp: 1, pow: 4, tec: 1, car: 1 });
     }
   }, [mode, styles[1]]);
 
@@ -2169,6 +2177,8 @@ export default function App() {
 
         {/* Global Toolbar */}
         <div className="flex items-center gap-2">
+          <button onClick={onDoubles} className="py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-black text-white text-xs flex items-center gap-1.5" title="4人オンラインダブルスに切り替え">👥 オンラインダブルス（4人）</button>
+          <button onClick={() => setShowCamera(v => !v)} className="py-2 px-3 rounded-lg bg-sky-700 hover:bg-sky-600 font-bold text-white text-xs">📷 カメラ体感操作</button>
           {/* 球筋＆タイミングガイドボタン */}
           <button
             onClick={() => setShowShotGuide(true)}
@@ -2221,6 +2231,16 @@ export default function App() {
         </div>
       </header>
 
+      {showCamera && <div className="w-full max-w-6xl mb-3"><MotionCamera onKeys={(k) => {
+        activeTouchKeys.current.KeyA = k.left;
+        activeTouchKeys.current.KeyD = k.right;
+        activeTouchKeys.current.KeyW = k.jump;
+        activeTouchKeys.current.KeyQ = k.hit;
+        activeTouchKeys.current.KeyE = k.lob;
+        activeTouchKeys.current.ShiftLeft = k.dash;
+        // Keep local player 2 keyboard controls independent of camera input.
+      }} /></div>}
+
       {/* Main Game Arena */}
       <main 
         ref={containerRef}
@@ -2249,12 +2269,13 @@ export default function App() {
                 </p>
 
                 {/* Mode Select Buttons */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-3">
                   {[
                     { id: 0, label: '1: 2人対戦' },
                     { id: 1, label: '2: CPU かんたん' },
                     { id: 2, label: '3: CPU ふつう' },
                     { id: 3, label: '4: CPU つよい' },
+                    { id: 5, label: '👑 伝説級CPU' },
                     { id: 4, label: '5: オンライン対戦 🌐' },
                   ].map((m) => (
                     <button
@@ -2516,7 +2537,7 @@ export default function App() {
                               ? '2P (あなた・右コート)' 
                               : '2P (対戦相手・右コート)' 
                             : mode > 0 
-                            ? `CPU (${['', 'かんたん', 'ふつう', 'つよい'][mode]})` 
+                            ? `CPU (${({1:'かんたん',2:'ふつう',3:'つよい',5:'伝説級'} as Record<number,string>)[mode]})` 
                             : '2P (右コート)'}
                         </span>
                       </div>
@@ -2953,4 +2974,20 @@ export default function App() {
       )}
     </div>
   );
+}
+
+
+export default function App() {
+  const [doubles, setDoubles] = useState(() => new URLSearchParams(window.location.search).get('doubles') === '1');
+  const switchToDoubles = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('room');url.searchParams.set('doubles','1');
+    window.history.replaceState({},'',url.toString());setDoubles(true);
+  };
+  const switchToClassic = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('doubles');url.searchParams.delete('room');
+    window.history.replaceState({},'',url.toString());setDoubles(false);
+  };
+  return doubles ? <DoublesArena onBack={switchToClassic} /> : <ClassicGame onDoubles={switchToDoubles} />;
 }
