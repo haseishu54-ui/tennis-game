@@ -3,6 +3,10 @@
   "main": "worker/index.ts",
   "compatibility_date": "2025-09-01",
 
+  // デプロイ / dev の前に自動でフロントエンドをビルドして dist を作る
+  // (Cloudflare 側のビルドコマンド欄が空でも動くようにするため)
+  "build": { "command": "npm run build" },
+
   // vite build で作られた dist を配信。
   // run_worker_first: /ws (WebSocket) を Worker に必ず通すため
   "assets": {

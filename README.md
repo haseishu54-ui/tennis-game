@@ -54,7 +54,7 @@ npm run cf:deploy       # ビルド → デプロイ
 
 1. このフォルダを GitHub にアップロード
 2. Cloudflare ダッシュボード → **Workers & Pages** → **Create** → **Import a repository**（Workers側）
-3. ビルドコマンド: `npm run build` / デプロイコマンド: `npx wrangler deploy`
+3. デプロイコマンド: `npx wrangler deploy`（ビルドは `wrangler.jsonc` の設定で自動実行されます。ビルドコマンド欄は空のままでOK）
 
 ### 手元でCloudflare環境をテストする
 
