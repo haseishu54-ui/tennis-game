@@ -18,6 +18,62 @@ const createWorld = ():World => ({ phase:'lobby',score:[0,0],serve:0,countdown:2
   players:SPAWNS.map((p,i)=>({...p,swing:0,cool:0,dash:0,power:0,flash:0,name:`${i+1}P`})),ball:newBall(),seq:0 });
 const phaseJapanese:Record<Phase,string> = {lobby:'ルーム待機',countdown:'サーブ準備',play:'ラリー中',point:'ポイント',ended:'試合終了'};
 
+const SKIN = '#ffd9b8';
+function drawHuman(ctx:CanvasRenderingContext2D,p:Player,index:number,now:number,isMe:boolean,label:string){
+  const dir=TEAM(index)===0?1:-1;
+  const shirt=COLORS[index];
+  const swingPose=p.swing>0;
+  const step=Math.sin(now/180+index)*2.4;
+  ctx.save();
+  ctx.translate(p.x,p.y+6);
+  ctx.scale(dir,1);
+  ctx.lineCap='round';ctx.lineJoin='round';
+  ctx.fillStyle='rgba(0,0,0,.22)';ctx.beginPath();ctx.ellipse(0,14,24,9,0,0,7);ctx.fill();
+  if(isMe){ctx.beginPath();ctx.arc(0,-18,34+Math.sin(now/280)*2,0,7);ctx.strokeStyle='#f8fafc';ctx.lineWidth=3;ctx.stroke();}
+  if(p.flash>0){ctx.beginPath();ctx.arc(0,-16,42+p.flash*14,0,7);ctx.strokeStyle=`rgba(251,191,36,${p.flash})`;ctx.lineWidth=5;ctx.stroke();}
+
+  // legs
+  ctx.strokeStyle=SKIN;ctx.lineWidth=5;
+  ctx.beginPath();ctx.moveTo(-4,-2);ctx.lineTo(-6,17-Math.max(0,step));ctx.moveTo(4,-2);ctx.lineTo(6,17-Math.max(0,-step));ctx.stroke();
+  ctx.strokeStyle='#ffffff';ctx.lineWidth=3;
+  ctx.beginPath();ctx.moveTo(-6,14-Math.max(0,step));ctx.lineTo(-6,22-Math.max(0,step));ctx.moveTo(6,14-Math.max(0,-step));ctx.lineTo(6,22-Math.max(0,-step));ctx.stroke();
+  ctx.fillStyle='#f8fafc';ctx.strokeStyle='#475569';ctx.lineWidth=1.2;
+  ctx.beginPath();ctx.ellipse(-3,25-Math.max(0,step),6.2,3.5,0,0,7);ctx.fill();ctx.stroke();
+  ctx.beginPath();ctx.ellipse(9,25-Math.max(0,-step),6.2,3.5,0,0,7);ctx.fill();ctx.stroke();
+
+  // body
+  ctx.fillStyle=shirt;ctx.beginPath();ctx.roundRect(-12,-34,24,26,8);ctx.fill();
+  ctx.fillStyle='#ffffff';ctx.beginPath();ctx.roundRect(-12,-14,24,9,4);ctx.fill();
+  ctx.fillStyle=SKIN;ctx.beginPath();ctx.roundRect(-4,-38,8,7,3);ctx.fill();
+  ctx.fillStyle='#ffffff';ctx.beginPath();ctx.roundRect(-11,-7,22,10,4);ctx.fill();ctx.strokeStyle='rgba(31,41,55,.18)';ctx.lineWidth=1;ctx.stroke();
+
+  // rear arm
+  ctx.strokeStyle=SKIN;ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(-10,-26);ctx.lineTo(-19,-18);ctx.stroke();
+
+  // head
+  ctx.fillStyle=SKIN;ctx.strokeStyle='rgba(0,0,0,.18)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(0,-50,15.5,0,7);ctx.fill();ctx.stroke();
+  ctx.fillStyle=shirt;ctx.beginPath();ctx.arc(0,-53,15.5,Math.PI*1.02,Math.PI*1.98);ctx.fill();ctx.beginPath();ctx.ellipse(12,-49,10,3.8,0,0,7);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.18)';ctx.beginPath();ctx.ellipse(-4,-58,6,2.4,-0.2,0,7);ctx.fill();
+  ctx.fillStyle='#1f2937';ctx.beginPath();ctx.arc(4,-49,1.9,0,7);ctx.arc(10,-49,1.9,0,7);ctx.fill();
+  ctx.strokeStyle='#9f1239';ctx.lineWidth=1.4;ctx.beginPath();ctx.arc(7,-44,2.8,0.25,Math.PI-0.25);ctx.stroke();
+
+  // front arm + racket
+  let a=swingPose?-0.9:0.08+Math.sin(now/240+index)*0.04;
+  const sx=7,sy=-26,hx=sx+15*Math.cos(a),hy=sy+15*Math.sin(a);
+  ctx.strokeStyle=SKIN;ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(hx,hy);ctx.stroke();
+  ctx.save();ctx.translate(hx,hy);ctx.rotate(a);
+  ctx.strokeStyle='#6b4b2a';ctx.lineWidth=3.2;ctx.beginPath();ctx.moveTo(-2,0);ctx.lineTo(13,0);ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.18)';ctx.strokeStyle='#fcd34d';ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(24,0,13,9,0,0,7);ctx.fill();ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.58)';ctx.lineWidth=.75;
+  for(let k=-2;k<=2;k++){ctx.beginPath();ctx.moveTo(24+k*4.3,-7);ctx.lineTo(24+k*4.3,7);ctx.stroke();}
+  for(let k=-1;k<=1;k++){ctx.beginPath();ctx.moveTo(14,k*4.2);ctx.lineTo(34,k*4.2);ctx.stroke();}
+  ctx.restore();
+  ctx.restore();
+
+  ctx.fillStyle='#fff';ctx.font='bold 20px system-ui';ctx.textAlign='center';ctx.fillText(label,p.x,p.y-46);
+  ctx.fillStyle='#082f49';ctx.fillRect(p.x-30,p.y+39,60,7);ctx.fillStyle=p.power>=99?'#fde047':'#67e8f9';ctx.fillRect(p.x-30,p.y+39,60*p.power/100,7);
+}
+
 function drawCourt(ctx:CanvasRenderingContext2D,w:World,now:number,seat:number,practice:boolean,legend:boolean) {
   const sky=ctx.createLinearGradient(0,0,WIDTH,HEIGHT);
   sky.addColorStop(0,'#092b3f');sky.addColorStop(1,'#101b38');
@@ -38,24 +94,12 @@ function drawCourt(ctx:CanvasRenderingContext2D,w:World,now:number,seat:number,p
   ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=1;
   for(let y=TOP+6;y<BOTTOM;y+=12){ctx.beginPath();ctx.moveTo(NET_X-13,y);ctx.lineTo(NET_X+13,y);ctx.stroke();}
   ctx.fillStyle='#e0f2fe';ctx.fillRect(NET_X-8,TOP-15,16,16);ctx.fillRect(NET_X-8,BOTTOM-1,16,16);
-  // player shadows and characters
+  // player characters
   for(let i=0;i<w.players.length;i++){
-    const p=w.players[i],r=26;
+    const p=w.players[i];
     const isMe=(practice?i===0:i===seat);
-    ctx.fillStyle='rgba(0,0,0,.24)';ctx.beginPath();ctx.ellipse(p.x+5,p.y+12,29,13,0,0,7);ctx.fill();
-    if(isMe){ctx.beginPath();ctx.arc(p.x,p.y,r+10+Math.sin(now/280)*2,0,7);ctx.strokeStyle='#f8fafc';ctx.lineWidth=3;ctx.stroke();}
-    ctx.fillStyle=COLORS[i];ctx.beginPath();ctx.arc(p.x,p.y,r,0,7);ctx.fill();
-    ctx.strokeStyle='#102338';ctx.lineWidth=5;ctx.stroke();
-    ctx.fillStyle='#1e293b';ctx.beginPath();ctx.arc(p.x-4,p.y-8,11,0,7);ctx.fill();
-    const angle=TEAM(i)===0?0:Math.PI;
-    ctx.save();ctx.translate(p.x,p.y);ctx.rotate(angle + (p.swing>0?-.95:0));
-    ctx.strokeStyle='#f8fafc';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(14,0);ctx.lineTo(45,0);ctx.stroke();
-    ctx.strokeStyle='#fcd34d';ctx.lineWidth=4;ctx.beginPath();ctx.ellipse(57,0,19,13,0,0,7);ctx.stroke();
-    ctx.restore();
-    if(p.flash>0){ctx.beginPath();ctx.arc(p.x,p.y,45+p.flash*16,0,7);ctx.strokeStyle=`rgba(251,191,36,${p.flash})`;ctx.lineWidth=5;ctx.stroke();}
-    ctx.fillStyle='#fff';ctx.font='bold 20px system-ui';ctx.textAlign='center';ctx.fillText(practice&&i!==0?(legend&&TEAM(i)===1?'BOSS AI':'CPU'):`${i+1}P`,p.x,p.y-40);
-    // charging super
-    ctx.fillStyle='#082f49';ctx.fillRect(p.x-30,p.y+33,60,7);ctx.fillStyle=p.power>=99?'#fde047':'#67e8f9';ctx.fillRect(p.x-30,p.y+33,60*p.power/100,7);
+    const label=practice&&i!==0?(legend&&TEAM(i)===1?'BOSS AI':'CPU'):`${i+1}P`;
+    drawHuman(ctx,p,i,now,isMe,label);
   }
   const b=w.ball;
   if(w.phase!=='lobby'){

@@ -1600,18 +1600,21 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
     }
 
     function drawPlayer(p: Player, i: number, now: number) {
-      const dir = i === 0 ? 1 : -1, air = p.z > 0, moving = p.ix !== 0, ph = Math.sin(p.walk);
-      
+      const dir = i === 0 ? 1 : -1;
+      const air = p.z > 0;
+      const moving = p.ix !== 0;
+      const ph = Math.sin(p.walk);
+
       // 影
       ctx.fillStyle = `rgba(0,0,0,${Math.max(0.1, 0.28 - p.z / 400)})`;
-      ctx.beginPath(); 
-      ctx.ellipse(p.x, GY + 5, Math.max(7, 15 - p.z / 12), 3.5, 0, 0, 7); 
+      ctx.beginPath();
+      ctx.ellipse(p.x, GY + 5, Math.max(7, 15 - p.z / 12), 3.5, 0, 0, 7);
       ctx.fill();
 
       // キャリー力 (拾う範囲) のオーラサークル可視化
       const carryRange = STY[p.style].reach + p.ev.car * 14;
       if (p.ev.car > 0) {
-        ctx.strokeStyle = p.ev.car >= 4 ? "rgba(56,189,248,0.3)" : "rgba(255,255,255,0.14)";
+        ctx.strokeStyle = p.ev.car >= 4 ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.14)';
         ctx.lineWidth = p.ev.car >= 4 ? 1.5 : 1;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
@@ -1628,155 +1631,173 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
         const meterX = p.x - meterW / 2;
         const meterY = GY - p.z - 88;
 
-        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
         ctx.beginPath();
         ctx.roundRect(meterX - 2, meterY - 2, meterW + 4, meterH + 4, 3);
         ctx.fill();
 
-        ctx.fillStyle = "#3b82f6"; ctx.fillRect(meterX, meterY, meterW * 0.35, meterH);
-        ctx.fillStyle = "#f59e0b"; ctx.fillRect(meterX + meterW * 0.35, meterY, meterW * 0.3, meterH);
-        ctx.fillStyle = "#10b981"; ctx.fillRect(meterX + meterW * 0.65, meterY, meterW * 0.35, meterH);
+        ctx.fillStyle = '#3b82f6'; ctx.fillRect(meterX, meterY, meterW * 0.35, meterH);
+        ctx.fillStyle = '#f59e0b'; ctx.fillRect(meterX + meterW * 0.35, meterY, meterW * 0.3, meterH);
+        ctx.fillStyle = '#10b981'; ctx.fillRect(meterX + meterW * 0.65, meterY, meterW * 0.35, meterH);
 
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = '#ffffff';
         ctx.fillRect(meterX + prog * meterW - 1.5, meterY - 2, 3, meterH + 4);
       }
 
-      ctx.save(); 
-      ctx.translate(p.x, GY - p.z); 
+      ctx.save();
+      ctx.translate(p.x, GY - p.z);
       ctx.scale(dir * PS, PS);
-      ctx.lineCap = "round"; 
-      ctx.lineJoin = "round";
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
-      const feet = [-1, 1].map((s) => ({
-        x: air ? s * 7 : moving ? ph * s * 11 : s * 5,
-        y: air ? -12 : -3 - (moving ? Math.max(0, ph * s) * 6 : 0), 
-        s,
-      }));
+      const footLift = moving ? Math.max(0, ph) * 4 : 0;
+      const footLift2 = moving ? Math.max(0, -ph) * 4 : 0;
+      const jumpShift = air ? 9 : 0;
 
-      ctx.strokeStyle = SKIN; 
+      // 後ろ腕
+      ctx.strokeStyle = SKIN;
       ctx.lineWidth = 5;
-      ctx.beginPath(); 
-      ctx.moveTo(-7, -48); 
-      ctx.lineTo(-10, -33 + (air ? -6 : 0)); 
+      ctx.beginPath();
+      ctx.moveTo(-10, -48);
+      ctx.lineTo(-20, -38 - jumpShift * 0.2);
       ctx.stroke();
-      ctx.lineWidth = 6;
-      feet.forEach((f) => { 
-        ctx.beginPath(); 
-        ctx.moveTo(f.s * 4, -26); 
-        ctx.lineTo(f.x, f.y - 3); 
-        ctx.stroke(); 
-      });
-      feet.forEach((f) => {
-        ctx.fillStyle = "#fff"; 
-        ctx.strokeStyle = "#444"; 
-        ctx.lineWidth = 1.5;
-        ctx.beginPath(); 
-        ctx.ellipse(f.x + 3, f.y, 7, 4, 0, 0, 7); 
-        ctx.fill(); 
-        ctx.stroke();
-      });
 
+      // 胴体と首
       ctx.fillStyle = COLORS[i];
-      ctx.beginPath(); 
-      ctx.roundRect(-11, -54, 22, 30, 8); 
+      ctx.beginPath();
+      ctx.roundRect(-12, -56, 24, 26, 8);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.roundRect(-12, -36, 24, 9, 4);
+      ctx.fill();
+      ctx.fillStyle = SKIN;
+      ctx.beginPath();
+      ctx.roundRect(-4, -60, 8, 7, 3);
       ctx.fill();
 
-      ctx.fillStyle = "#fff";
-      ctx.beginPath(); 
-      ctx.roundRect(-11, -30, 22, 10, 4); 
+      // 短パン
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.roundRect(-11, -29, 22, 10, 4);
       ctx.fill();
-
-      ctx.fillStyle = HAIR[i];
-      ctx.beginPath(); 
-      ctx.ellipse(-8, -68, 10, 12, 0, 0, 7); 
-      ctx.fill();
-
-      ctx.fillStyle = SKIN; 
-      ctx.strokeStyle = "rgba(0,0,0,.25)"; 
+      ctx.strokeStyle = 'rgba(31,41,55,.25)';
       ctx.lineWidth = 1;
-      ctx.beginPath(); 
-      ctx.arc(0, -70, 16, 0, 7); 
-      ctx.fill(); 
       ctx.stroke();
 
-      ctx.fillStyle = HAIR[i];
-      ctx.beginPath(); 
-      ctx.arc(0, -70, 16.5, Math.PI, Math.PI * 2); 
+      // 足・靴
+      ctx.strokeStyle = SKIN;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(-5, -19);
+      ctx.lineTo(-7, 0 - footLift * 0.2 + jumpShift);
+      ctx.moveTo(5, -19);
+      ctx.lineTo(7, 1 - footLift2 * 0.2 + jumpShift);
+      ctx.stroke();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-7, -1 + jumpShift);
+      ctx.lineTo(-7, 7 - footLift + jumpShift);
+      ctx.moveTo(7, 0 + jumpShift);
+      ctx.lineTo(7, 8 - footLift2 + jumpShift);
+      ctx.stroke();
+      [['#f8fafc', -7, 10 - footLift + jumpShift], ['#f8fafc', 7, 11 - footLift2 + jumpShift]].forEach(([c, sx, sy]) => {
+        ctx.fillStyle = c as string;
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(Number(sx) + 3, Number(sy), 7, 4, 0, 0, 7);
+        ctx.fill();
+        ctx.stroke();
+      });
+
+      // 顔
+      ctx.fillStyle = SKIN;
+      ctx.strokeStyle = 'rgba(0,0,0,.18)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, -73, 15.5, 0, 7);
+      ctx.fill();
+      ctx.stroke();
+
+      // 帽子（二枚目に近い雰囲気）
+      ctx.fillStyle = COLORS[i];
+      ctx.beginPath();
+      ctx.arc(0, -76, 15.5, Math.PI * 1.02, Math.PI * 1.98);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(12, -72, 10, 3.8, 0, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.18)';
+      ctx.beginPath();
+      ctx.ellipse(-4, -81, 6, 2.4, -0.2, 0, 7);
       ctx.fill();
 
-      if (p.style === "front") {
-        ctx.fillStyle = COLORS[i];
-        ctx.beginPath(); 
-        ctx.arc(0, -71, 17, Math.PI, Math.PI * 2); 
-        ctx.fill();
-        ctx.beginPath(); 
-        ctx.roundRect(4, -76, 22, 5, 2); 
-        ctx.fill();
-      } else {
-        ctx.strokeStyle = "#fff"; 
-        ctx.lineWidth = 4;
-        ctx.beginPath(); 
-        ctx.arc(0, -70, 14, Math.PI * 1.08, Math.PI * 1.92); 
+      // 顔パーツ
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath();
+      ctx.arc(4, -72, 1.9, 0, 7);
+      ctx.arc(10, -72, 1.9, 0, 7);
+      ctx.fill();
+      ctx.strokeStyle = '#9f1239';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(7, -67, 2.8, 0.25, Math.PI - 0.25);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(251,113,133,.45)';
+      ctx.beginPath();
+      ctx.arc(0, -66, 2.5, 0, 7);
+      ctx.arc(14, -66, 2.5, 0, 7);
+      ctx.fill();
+
+      // 利き腕＋ラケット
+      let a = 0.15 + Math.sin(now / 280 + i) * 0.05;
+      if (p.sw >= 0) {
+        const u = Math.min(1, p.sw / STY[p.style].sw);
+        const e = 1 - (1 - u) * (1 - u);
+        a = p.kind === 'b' ? 1.42 - 2.75 * e : -2.18 + 3.18 * e;
+      }
+      const sx = 7;
+      const sy = -48;
+      const hx = sx + 16 * Math.cos(a);
+      const hy = sy + 16 * Math.sin(a);
+      ctx.strokeStyle = SKIN;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(hx, hy);
+      ctx.stroke();
+
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.rotate(a);
+      ctx.strokeStyle = '#6b4b2a';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(-2, 0);
+      ctx.lineTo(15, 0);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,.18)';
+      ctx.strokeStyle = '#dfe7ef';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(28, 0, 14, 10, 0, 0, 7);
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,.6)';
+      ctx.lineWidth = 0.8;
+      for (let k = -2; k <= 2; k++) {
+        ctx.beginPath();
+        ctx.moveTo(28 + k * 5, -8);
+        ctx.lineTo(28 + k * 5, 8);
         ctx.stroke();
       }
-
-      ctx.fillStyle = "#222";
-      ctx.beginPath(); 
-      ctx.arc(4, -68, 2.3, 0, 7); 
-      ctx.arc(10, -68, 2.3, 0, 7); 
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,110,140,.5)"; 
-      ctx.beginPath(); 
-      ctx.arc(13, -62, 3, 0, 7); 
-      ctx.fill();
-      ctx.strokeStyle = "#a33"; 
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); 
-      ctx.arc(7.5, -63, 3, 0.2, Math.PI - 0.2); 
-      ctx.stroke();
-
-      let a = 0.45 + Math.sin(now / 300 + i) * 0.05;
-      if (p.sw >= 0) { 
-        const u = Math.min(1, p.sw / STY[p.style].sw), e = 1 - (1 - u) * (1 - u); 
-        a = p.kind === "b" ? 1.5 - 2.9 * e : -2.4 + 3.4 * e; 
-      }
-      const sx = 6, sy = -48, hx = sx + 15 * Math.cos(a), hy = sy + 15 * Math.sin(a);
-      ctx.strokeStyle = SKIN; 
-      ctx.lineWidth = 5;
-      ctx.beginPath(); 
-      ctx.moveTo(sx, sy); 
-      ctx.lineTo(hx, hy); 
-      ctx.stroke();
-
-      ctx.save(); 
-      ctx.translate(hx, hy); 
-      ctx.rotate(a);
-      ctx.strokeStyle = "#5a3a22"; 
-      ctx.lineWidth = 3.5;
-      ctx.beginPath(); 
-      ctx.moveTo(-3, 0); 
-      ctx.lineTo(15, 0); 
-      ctx.stroke();
-      ctx.fillStyle = "rgba(255,255,255,.2)"; 
-      ctx.strokeStyle = "#f2f2f2"; 
-      ctx.lineWidth = 3;
-      ctx.beginPath(); 
-      ctx.ellipse(29, 0, 14, 10, 0, 0, 7); 
-      ctx.fill(); 
-      ctx.stroke();
-      ctx.strokeStyle = "rgba(255,255,255,.65)"; 
-      ctx.lineWidth = 0.8;
-      for (let k = -2; k <= 2; k++) { 
-        ctx.beginPath(); 
-        ctx.moveTo(29 + k * 5, -8); 
-        ctx.lineTo(29 + k * 5, 8); 
-        ctx.stroke(); 
-      }
-      for (let k = -1; k <= 1; k++) { 
-        ctx.beginPath(); 
-        ctx.moveTo(18, k * 5); 
-        ctx.lineTo(40, k * 5); 
-        ctx.stroke(); 
+      for (let k = -1; k <= 1; k++) {
+        ctx.beginPath();
+        ctx.moveTo(17, k * 5);
+        ctx.lineTo(39, k * 5);
+        ctx.stroke();
       }
       ctx.restore();
       ctx.restore();
