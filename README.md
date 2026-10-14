@@ -1,7 +1,7 @@
 # ふたりでテニス（オンライン対戦対応）
 
 2人対戦・CPU対戦・**オンライン対戦**ができるテニスゲームです。
-オンライン対戦は、Node.js サーバー (`server.ts`) が WebSocket で2人をつなぐ方式です。
+オンライン対戦は WebSocket で2人をつなぐ方式です（ローカルは `server.ts`、Cloudflare では `worker/index.ts` が担当）。
 
 ## 起動方法
 
@@ -31,19 +31,51 @@ npm run dev
 
 `npm run dev` を動かしているPCのIPアドレスを調べ、相手が `http://<そのIP>:3000` を開けば対戦できます。
 
-## インターネット越しに公開する
+## Cloudflare で公開する（おすすめ）
 
-WebSocket が使えるホスティング（Render / Railway / Fly.io / 自前VPS など）で動かします。
-サーバーレス系（Vercel / Netlify Functions など）は WebSocket が使えないため不向きです。
+Cloudflare には Node.js のサーバーを置けないため、このプロジェクトは
+**Cloudflare Workers + Durable Objects** でオンライン対戦を動かします
+（`worker/index.ts` と `wrangler.jsonc`）。部屋コードごとに Durable Object が1つ作られ、2人をつなぎます。
+
+> ⚠️ **Cloudflare Pages ではなく「Workers」として** デプロイしてください。
+> Pages に静的ファイルだけ置いても、WebSocket サーバーがないため「接続エラー」になります。
+
+### 方法A: コマンドでデプロイ
+
+```bash
+npm install
+npx wrangler login      # 初回のみ。ブラウザでCloudflareにログイン
+npm run cf:deploy       # ビルド → デプロイ
+```
+
+完了すると `https://futari-de-tennis.<あなたのサブドメイン>.workers.dev` が発行されます。
+
+### 方法B: GitHub連携 (Workers Builds)
+
+1. このフォルダを GitHub にアップロード
+2. Cloudflare ダッシュボード → **Workers & Pages** → **Create** → **Import a repository**（Workers側）
+3. ビルドコマンド: `npm run build` / デプロイコマンド: `npx wrangler deploy`
+
+### 手元でCloudflare環境をテストする
+
+```bash
+npm run cf:dev          # http://localhost:8787
+```
+
+### 無料プランについて
+
+Durable Objects は無料プランでも使えます（`wrangler.jsonc` は SQLite 版で設定済み）。
+ただしリクエスト数に日次上限があり、対戦中は WebSocket メッセージが大量に流れるため、
+遊びすぎると上限に達する場合があります。たくさん遊ぶ場合は有料プラン（月$5〜）が安心です。
+
+## Node サーバーで公開する（Render / Railway / VPS など）
 
 ```bash
 npm install
 npm run start:prod     # ビルドして本番モードで起動
 ```
 
-- ポートは環境変数 `PORT` で指定できます（未指定は 3000）。
-- HTTPS で公開すると、自動的に `wss://` で接続します。
-- `/healthz` で稼働確認ができます。
+ポートは環境変数 `PORT`（未指定は 3000）。HTTPS で公開すると自動的に `wss://` で接続します。
 
 ## 操作
 

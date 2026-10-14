@@ -376,9 +376,14 @@ export default function App() {
     setOnlineNotice('サーバーに接続中...');
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    const wsUrl = `${protocol}//${window.location.host}/ws?room=${encodeURIComponent(roomIdToUse)}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
+    // 待機中に回線が切られないよう、定期的に ping を送る
+    const pingId = window.setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) ws.send('{"type":"ping"}');
+    }, 20000);
+    ws.addEventListener('close', () => window.clearInterval(pingId));
     // 古いソケットのイベントが新しい接続の状態を壊さないようにする
     const isCurrent = () => wsRef.current === ws;
 
@@ -504,7 +509,7 @@ export default function App() {
     ws.onerror = () => {
       if (!isCurrent()) return;
       setOnlineStatus('disconnected');
-      setOnlineNotice('接続エラーが発生しました');
+      setOnlineNotice(`接続エラーが発生しました (接続先: ${wsUrl})。サーバーが起動しているか、WebSocket 対応のホスティングか確認してください。`);
     };
   }, [onlineRoomId]);
 
