@@ -2,7 +2,7 @@
  * The supplied picture is shown behind the transparent WebGL scene in 'photo' view.
  * Other views render the full textured 3D court, allowing actual camera rotation. */
 import * as THREE from 'three';
-import { HALF_WIDTH, HALF_LENGTH, NET_HEIGHT, type TennisWorld } from './perspectivePhysics';
+import { HALF_WIDTH, HALF_LENGTH, NET_HEIGHT, isSingles, type TennisWorld } from './perspectivePhysics';
 
 export type ViewMode='photo'|'follow'|'side'|'overhead'|'ball';
 export const VIEW_NAMES:Record<ViewMode,string>={photo:'添付画像のコート',follow:'選手を追う3D',side:'サイドカメラ',overhead:'俯瞰カメラ',ball:'ボール追跡'};
@@ -147,7 +147,7 @@ export class PerspectiveStage {
    this.camera.updateProjectionMatrix();
  }
  frame(w:TennisWorld,seat:number,dt:number,elapsed:number){
-   const count=w.mode==='single'?2:4;
+   const count=isSingles(w.mode)?2:4;
    this.running+=dt;
    for(let i=0;i<4;i++){
      const p=w.players[i],a=this.actors[i];a.root.visible=i<count;

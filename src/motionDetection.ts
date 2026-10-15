@@ -2,6 +2,7 @@
 export type MotionKeys = {
   left: boolean; right: boolean; up: boolean; down: boolean;
   jump: boolean; hit: boolean; lob: boolean; dash: boolean;
+  aim?: number; power?: number; swingId?: number; capturedAt?: number;
 };
 export type MotionSensitivity = 'normal' | 'high' | 'maximum';
 export type Landmark = { x: number; y: number; visibility?: number };
@@ -27,13 +28,14 @@ export type MotionState = {
   // Alternating leg motion can indicate running in place.
   priorLegDelta: number | null;
   lastLegChange: number;
+  aim: number; power: number; swingId: number;
 };
 
 export function createMotionState(): MotionState {
   return {
     samples:0,centerX:null,shoulderWidth:null,hipY:null,filteredX:null,
     filteredDepth:1,lastAt:0,wristLeft:null,wristRight:null,lastSwing:-1000,lastJump:-1000,heldJumpUntil:0,
-    heldGestureUntil:0,heldGesture:null,lateral:0,depth:0,priorLegDelta:null,lastLegChange:-1000,
+    heldGestureUntil:0,heldGesture:null,lateral:0,depth:0,priorLegDelta:null,lastLegChange:-1000,aim:0,power:.5,swingId:0,
   };
 }
 
@@ -57,7 +59,13 @@ function updateAxis(value:number, previous:-1|0|1, threshold:number): -1|0|1 {
 export function detectMotion(points:Landmark[], now:number, state:MotionState, sensitivity:MotionSensitivity='high', reversed=false):MotionKeys {
   const shoulderL=points[11], shoulderR=points[12], hipL=points[23], hipR=points[24];
   const wristL=points[15], wristR=points[16];
-  if(!visible(shoulderL)||!visible(shoulderR)||!visible(hipL)||!visible(hipR))return NO_MOTION;
+  if(!visible(shoulderL)||!visible(shoulderR)||!visible(hipL)||!visible(hipR)){
+    state.wristLeft=null;state.wristRight=null;state.lastAt=0;state.heldGesture=null;
+    state.heldGestureUntil=0;state.heldJumpUntil=0;state.lateral=0;state.depth=0;
+    return NO_MOTION;
+  }
+  // A stalled camera must not turn an old wrist position into a new swing.
+  if(state.lastAt && now-state.lastAt>250){state.wristLeft=null;state.wristRight=null;state.heldGesture=null;state.heldGestureUntil=0;}
 
   const centerX=(shoulderL.x+shoulderR.x+hipL.x+hipR.x)/4;
   const hipY=(hipL.y+hipR.y)/2;
@@ -92,8 +100,14 @@ export function detectMotion(points:Landmark[], now:number, state:MotionState, s
   const swingThreshold=sensitivity==='maximum'?.35:sensitivity==='high'?.52:.84;
   const raisedBoth=!!relativeLeft&&!!relativeRight&&relativeLeft.y<-.065&&relativeRight.y<-.065;
   const enoughMotion=speed>swingThreshold;
-  const canSwing=state.samples>=8&&now-state.lastSwing>260;
+  const canSwing=!wasCalibrating&&now-state.lastSwing>260;
   if(canSwing && enoughMotion){
+    const hand=vL>=vR?relativeLeft:relativeRight;
+    const prior=vL>=vR?state.wristLeft:state.wristRight;
+    const velocityX=hand&&prior?(hand.x-prior.x)/dt:0;
+    state.aim=Math.max(-1,Math.min(1,velocityX/Math.max(.25,speed)*(reversed?-1:1)));
+    state.power=Math.max(.1,Math.min(1,(speed/Math.max(.065,width)-1)/11));
+    state.swingId++;
     state.lastSwing=now;
     state.heldGesture=raisedBoth?'lob':'hit';
     state.heldGestureUntil=now+170; // game frame cannot miss short sensor impulses
@@ -132,5 +146,6 @@ export function detectMotion(points:Landmark[], now:number, state:MotionState, s
     hit:state.heldGesture==='hit',
     lob:state.heldGesture==='lob',
     dash,
+    aim:state.aim,power:state.power,swingId:state.swingId,capturedAt:now,
   };
 }

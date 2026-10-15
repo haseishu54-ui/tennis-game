@@ -1,277 +1,227 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import MotionCamera, { type MotionKeys } from './MotionCamera';
 import { PerspectiveStage, VIEW_NAMES, type ViewMode } from './PerspectiveStage';
-import { advanceWorld, clamp, makeWorld, moveAthlete, NO_INPUT, teamOf, type MatchKind, type MoveInput, type TennisWorld } from './perspectivePhysics';
+import { advanceWorld, clamp, makeWorld, moveAthlete, NO_INPUT, isOnline, isSingles, type MatchKind, type MoveInput, type TennisWorld } from './perspectivePhysics';
+import { cloneWorld, smoothWorld, validWorld, wireKind } from './perspectiveNetwork';
+import { cleanInput } from '../shared/tennisProtocol';
 import './perspective.css';
 
-const VIEWS:ViewMode[]=['photo','follow','side','overhead','ball'];
-const MOTION_ZERO:MotionKeys={left:false,right:false,up:false,down:false,jump:false,hit:false,lob:false,dash:false};
-const nextView=(now:ViewMode):ViewMode=>VIEWS[(VIEWS.indexOf(now)+1)%VIEWS.length];
-const encodeX=(x:number)=>clamp((x+5.49)/10.98*1200,0,1200);
-const encodeZ=(z:number)=>clamp((z+11.885)/23.77*750,0,750);
-const decodeX=(x:number)=>clamp(x/1200*10.98-5.49,-5.1,5.1);
-const decodeZ=(y:number,seat:number)=>clamp(y/750*23.77-11.885,teamOf(seat)===0?.7:-11.2,teamOf(seat)===0?11.2:-.7);
-const stamp=(w:TennisWorld)=>`${w.score[0]}-${w.score[1]}-${w.phase}-${w.message}-${w.rally}`;
+const ZERO:MotionKeys={left:false,right:false,up:false,down:false,jump:false,hit:false,lob:false,dash:false};
+const VIEWS:ViewMode[]=['follow','overhead','side','ball'];
+type Action={key:'hit'|'lob'|'smash'|'serve';aim?:number;power?:number;at:number};
+const initialMode=():MatchKind=>new URLSearchParams(location.search).has('room')?(new URLSearchParams(location.search).get('match')==='singles'?'online-single':'online'):'single';
+const capacity=(m:MatchKind)=>isSingles(m)?2:4;
 
-type NetStatus='off'|'connecting'|'waiting'|'ready';
 export default function PerspectiveGame({onClassic,onLegacyDoubles}:{onClassic:()=>void;onLegacyDoubles:()=>void}){
- const [mode,setMode]=useState<MatchKind>(()=>new URLSearchParams(location.search).has('room')?'online':'single');
- const [view,setView]=useState<ViewMode>('photo');
- const [showCamera,setShowCamera]=useState(false);
- const [focus,setFocus]=useState(false);
- const [room,setRoom]=useState(()=>new URLSearchParams(location.search).get('room')||`3D${Math.floor(1000+Math.random()*9000)}`);
- const [netStatus,setNetStatus]=useState<NetStatus>('off');
- const [seat,setSeat]=useState(-1);
- const [roster,setRoster]=useState<number[]>([]);
- const [notice,setNotice]=useState('カメラなしでもキーボードでプレーできます。');
- const [ui,setUi]=useState(()=>makeWorld(new URLSearchParams(location.search).has('room')?'online':'single'));
- const [rendererError,setRendererError]=useState('');
- const [copied,setCopied]=useState(false);
+ const [mode,setMode]=useState<MatchKind>(initialMode),[view,setView]=useState<ViewMode>('follow');
+ const [showCamera,setShowCamera]=useState(true),[focus,setFocus]=useState(false),[cameraActive,setCameraActive]=useState(false);
+ const [room,setRoom]=useState(()=>new URLSearchParams(location.search).get('room')||'T'+Math.floor(10000+Math.random()*90000));
+ const [netStatus,setNetStatus]=useState('off'),[seat,setSeat]=useState(-1),[roster,setRoster]=useState<number[]>([]);
+ const [started,setStarted]=useState(false),[notice,setNotice]=useState('カメラ開始で全画面プレイ。両手を上げてトス → 片腕を振ってサーブ。');
+ const [ui,setUi]=useState(()=>makeWorld(initialMode())),[rendererError,setRendererError]=useState('');
+ const [rtt,setRtt]=useState(0),[networkStale,setNetworkStale]=useState(false),[fps,setFps]=useState(60);
  const workspace=useRef<HTMLDivElement>(null),stageDiv=useRef<HTMLDivElement>(null),canvas=useRef<HTMLCanvasElement>(null);
- const game=useRef<TennisWorld>(makeWorld(mode));
- const stage=useRef<PerspectiveStage|null>(null);
- const modeRef=useRef<MatchKind>(mode),viewRef=useRef<ViewMode>(view),seatRef=useRef(-1);
+ const game=useRef(makeWorld(initialMode())),stage=useRef<PerspectiveStage|null>(null);
+ const modeRef=useRef(mode),viewRef=useRef(view),seatRef=useRef(-1),startedRef=useRef(false),epoch=useRef(0);
  const pressed=useRef<Record<string,boolean>>({}),touch=useRef<Record<string,boolean>>({});
- const motion=useRef<MotionKeys>(MOTION_ZERO);
- const actions=useRef<Array<'hit'|'lob'|'smash'|'serve'>>([]);
- const ws=useRef<WebSocket|null>(null),lastUi=useRef(0),lastInput=useRef(0),lastSnapshot=useRef(0);
- const lastStamp=useRef(''),remoteActions=useRef<Record<number,MoveInput>>({});
- const onlineReady=useRef(false);
- const onlineStarted=useRef(false);
+ const motion=useRef<MotionKeys>(ZERO),motionAt=useRef(0),actions=useRef<Action[]>([]);
+ const socket=useRef<WebSocket|null>(null),lastSnapshot=useRef(0),lastInput=useRef(0),receivedAt=useRef(0);
+ const remote=useRef<Record<number,{input:MoveInput;at:number;actionId:number}>>({});
+ const actionId=useRef(0),renderWorld=useRef<TennisWorld|undefined>(undefined),cameraEvent=useRef(0);
  modeRef.current=mode;viewRef.current=view;
- const publish=()=>{
-   const w=game.current;
-   setUi({...w,score:[...w.score] as [number,number],players:w.players.map(p=>({...p})),ball:{...w.ball}});
- };
- const reset=(kind:MatchKind)=>{if(kind==='online')onlineStarted.current=false;game.current=makeWorld(kind);actions.current=[];remoteActions.current={};lastStamp.current='';publish();};
- const send=(data:object)=>{const socket=ws.current;if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(data));};
+ const publish=()=>setUi(cloneWorld(game.current));
+ const reset=(kind:MatchKind)=>{game.current=makeWorld(kind);actions.current=[];remote.current={};renderWorld.current=undefined;publish();};
+ const send=(data:object)=>{const s=socket.current;if(s?.readyState===WebSocket.OPEN&&s.bufferedAmount<64000)s.send(JSON.stringify(data));};
  const disconnect=useCallback(()=>{
-   ws.current?.close();ws.current=null;onlineReady.current=false;onlineStarted.current=false;seatRef.current=-1;setSeat(-1);setRoster([]);setNetStatus('off');
+   const s=socket.current;socket.current=null;s?.close();startedRef.current=false;setStarted(false);
+   seatRef.current=-1;setSeat(-1);setRoster([]);setNetStatus('off');remote.current={};
  },[]);
- const chooseMode=(kind:MatchKind)=>{
-   if(kind!=='online')disconnect();
-   setMode(kind);reset(kind);
-   if(kind==='online')setNotice('ルームに入室し、4人集まったらホストが試合を開始します。');
-   else setNotice(kind==='boss'?'伝説級AIに挑戦！':'サーブは「トス」→「ショット」の順番です。');
+ const chooseMode=(kind:MatchKind)=>{disconnect();modeRef.current=kind;setMode(kind);reset(kind);setNetworkStale(false);};
+ const queue=(key:Action['key'],aim?:number,power?:number)=>{
+   if(actions.current.length<4)actions.current.push({key,aim,power,at:performance.now()});
  };
- const changeView=useCallback((v:ViewMode)=>{setView(v);viewRef.current=v;stage.current?.setView(v);
-   const elem=stageDiv.current;if(elem)stage.current?.setSize(elem.clientWidth,elem.clientHeight);
+ const changeView=useCallback((v:ViewMode)=>{
+   setView(v);viewRef.current=v;stage.current?.setView(v);
+   if(stageDiv.current)stage.current?.setSize(stageDiv.current.clientWidth,stageDiv.current.clientHeight);
  },[]);
- const queue=(key:'hit'|'lob'|'smash'|'serve')=>{if(actions.current.length<5)actions.current.push(key);};
  const connect=()=>{
    disconnect();const roomId=room.toUpperCase().replace(/[^A-Z0-9_-]/g,'').slice(0,24);
-   if(!roomId){setNotice('部屋コードを入力してください。');return;}
-   setMode('online');reset('online');setNetStatus('connecting');
-   const url=`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws?room=${encodeURIComponent(roomId)}`;
-   const socket=new WebSocket(url);ws.current=socket;
-   let ping:number|undefined;
-   socket.onopen=()=>{if(ws.current!==socket)return;
-     socket.send(JSON.stringify({type:'join',matchType:'doubles',roomId}));
-     ping=window.setInterval(()=>{if(socket.readyState===WebSocket.OPEN)socket.send('{"type":"ping"}');},20000);
+   if(!roomId){setNotice('部屋コードを入力してください');return;}
+   setRoom(roomId);reset(modeRef.current);setNetStatus('connecting');
+   const s=new WebSocket((location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/ws?room='+encodeURIComponent(roomId));socket.current=s;
+   let ping=0;
+   const timeout=window.setTimeout(()=>{if(s.readyState!==WebSocket.OPEN){s.close();}},10000);
+   s.onopen=()=>{
+     clearTimeout(timeout);if(socket.current!==s)return;
+     s.send(JSON.stringify({type:'join',roomId,matchType:wireKind(modeRef.current)}));
+     ping=window.setInterval(()=>send({type:'ping',at:performance.now()}),2000);
    };
-   socket.onmessage=evt=>{
-     if(ws.current!==socket)return;
+   s.onmessage=event=>{
+     if(socket.current!==s)return;
      try{
-       const m=JSON.parse(evt.data);
-       if(m.type==='joined'){
-         seatRef.current=Number(m.playerIndex);onlineReady.current=true;setSeat(Number(m.playerIndex));setRoster(m.playerIndices||[]);
-         setNetStatus(m.playersCount===4?'ready':'waiting');reset('online');
-         setNotice(`${m.playerIndex+1}Pとして入室！ 現在${m.playersCount}/4人です。`);
-       }else if(m.type==='player_joined'||m.type==='player_left'){
-         setRoster(m.playerIndices||[]);setNetStatus(m.playersCount===4?'ready':'waiting');
+       const m=JSON.parse(event.data);
+       if(m.type==='error'){disconnect();setNotice(String(m.message));return;}
+       if(m.type==='pong'){if(Number.isFinite(m.at))setRtt(Math.round(performance.now()-m.at));return;}
+       if(m.type==='joined'||m.type==='player_joined'||m.type==='player_left'){
+         if(m.type==='joined'){seatRef.current=m.playerIndex;setSeat(m.playerIndex);}
+         setRoster(m.playerIndices||[]);setNetStatus(m.playersCount===capacity(modeRef.current)?'ready':'waiting');
          if(m.type==='player_left'){
-           reset('online');setNotice(m.leftPlayerIndex===0?'ホストが退出しました。新しい部屋を作ってください。':'プレイヤーが退出しました。再び4人集まるまでお待ちください。');
-         }else setNotice(`${m.playerIndex+1}Pが参加！ 現在${m.playersCount}/4人。`);
-       }else if(m.type==='d_start'){
-         reset('online');onlineStarted.current=true;setNotice('試合開始！');
-       }else if(m.type==='d_restart'){
-         reset('online');
-       }else if(m.type==='d_input'&&seatRef.current===0){
-         const i=Number(m.seat);if(i<1||i>3)return;
-         const p=game.current.players[i];if(!p)return;
-         const x=decodeX(Number(m.x)||0),z=decodeZ(Number(m.y)||0,i);
-         const dt=.05;p.vx=clamp((x-p.x)/dt,-12,12);p.vz=clamp((z-p.z)/dt,-12,12);
-         p.x+=(x-p.x)*.65;p.z+=(z-p.z)*.65;p.moving=Math.min(1,Math.hypot(p.vx,p.vz)/12);
-         if(m.swing||m.serve){remoteActions.current[i]={...NO_INPUT,hit:Boolean(m.swing&&!m.lob&&!m.smash),lob:Boolean(m.lob),smash:Boolean(m.smash),serve:Boolean(m.serve)};}
-       }else if(m.type==='d_snapshot'&&seatRef.current>0){
-         const snap=m.world as TennisWorld;
-         if(!snap||!Array.isArray(snap.players)||snap.players.length!==4||!snap.ball||!Array.isArray(snap.score))return;
-         const own=seatRef.current,prev=game.current.players[own];
-         game.current={...snap,mode:'online',players:snap.players.map((p,i)=>i===own&&prev?{...p,x:prev.x,z:prev.z,vx:prev.vx,vz:prev.vz}:p)};
+           startedRef.current=false;setStarted(false);reset(modeRef.current);
+           setNotice('プレイヤーが退出しました。人数が揃ったらホストが再開できます。');
+         }else setNotice('接続 '+m.playersCount+'/'+capacity(modeRef.current)+'人。黄色の輪があなたです。');
+       }else if(m.type==='t_start'){
+         epoch.current=m.epoch;reset(modeRef.current);receivedAt.current=performance.now();
+         startedRef.current=true;setStarted(true);setNotice('試合開始！');
+       }else if(m.type==='t_reset'){
+         startedRef.current=false;setStarted(false);reset(modeRef.current);
+       }else if(m.epoch===epoch.current&&m.type==='t_input'&&seatRef.current===0&&startedRef.current){
+         const i=Number(m.seat);if(!Number.isInteger(i)||i<1||i>=capacity(modeRef.current))return;
+         const input=cleanInput(m.input),old=remote.current[i];
+         if(old&&input.actionId<=old.actionId){
+           // Keep an action that arrived between physics ticks, but never replay it.
+           input.hit=old.input.hit;input.lob=old.input.lob;input.smash=old.input.smash;input.serve=old.input.serve;
+           input.aim=old.input.aim??0;input.power=old.input.power??.5;
+         }
+         remote.current[i]={input,at:performance.now(),actionId:Math.max(input.actionId,old?.actionId??0)};
+       }else if(m.epoch===epoch.current&&m.type==='t_snapshot'&&seatRef.current>0&&startedRef.current&&validWorld(m.world)){
+         const next=cloneWorld(m.world),own=seatRef.current,prev=game.current;
+         next.mode=modeRef.current;
+         if(next.phase===prev.phase&&next.seq===prev.seq){
+           const p=next.players[own],local=prev.players[own];
+           if(Math.hypot(p.x-local.x,p.z-local.z)<2){p.x=local.x+(p.x-local.x)*.22;p.z=local.z+(p.z-local.z)*.22;}
+         }
+         game.current=next;receivedAt.current=performance.now();
        }
-     }catch{ /* Ignore malformed/old network snapshots. */ }
+     }catch{ /* malformed network data never enters the world */ }
    };
-   socket.onerror=()=>{if(ws.current===socket)setNotice('オンライン接続に失敗しました。サーバーをご確認ください。');};
-   socket.onclose=()=>{if(ping)clearInterval(ping);if(ws.current!==socket)return;
-     ws.current=null;onlineReady.current=false;seatRef.current=-1;setSeat(-1);setRoster([]);setNetStatus('off');setNotice('接続が切れました。再入室してください。');reset('online');
-   };
+   s.onerror=()=>{if(socket.current===s)setNotice('接続できません。オンライン対応サーバーと部屋コードを確認してください。');};
+   s.onclose=()=>{clearTimeout(timeout);clearInterval(ping);if(socket.current!==s)return;disconnect();reset(modeRef.current);setNotice('接続が切れました。再入室してください。');};
  };
- const startOnline=()=>{
-   if(modeRef.current==='online'&&seatRef.current===0&&roster.length===4){
-      reset('online');onlineStarted.current=true;send({type:'d_start'});setNotice('試合開始！');
-   }
- };
- const restart=()=>{if(modeRef.current==='online'){
-    if(seatRef.current!==0)return;
-    send({type:'d_restart'});
-   }
-   reset(modeRef.current);
- };
+ const startOnline=()=>{if(seatRef.current===0&&roster.length===capacity(modeRef.current))send({type:'t_start'});};
+ const restart=()=>{if(isOnline(modeRef.current)){if(seatRef.current===0)send({type:'t_reset'});}else reset(modeRef.current);};
  const copyInvite=async()=>{
-   const u=new URL(location.href);u.searchParams.delete('doubles');u.searchParams.delete('classic');u.searchParams.set('arena','3d');u.searchParams.set('room',room.toUpperCase());
-   try{await navigator.clipboard.writeText(u.toString());setCopied(true);window.setTimeout(()=>setCopied(false),2000);}
-   catch{setNotice(`招待リンク: ${u.toString()}`);}
+   const u=new URL(location.href);u.search='';u.searchParams.set('room',room);u.searchParams.set('match',mode==='online-single'?'singles':'doubles');
+   try{await navigator.clipboard.writeText(u.toString());setNotice('招待リンクをコピーしました');}catch{setNotice('招待リンク: '+u.toString());}
  };
- const fullscreen=async()=>{
+ const enterFullscreen=()=>{
+   setFocus(true);
    const elem=workspace.current;
-   try{if(document.fullscreenElement)await document.exitFullscreen();else await elem?.requestFullscreen();}
-   catch{setNotice('全画面表示はこのブラウザで許可されませんでした。');}
+   if(elem&&!document.fullscreenElement){
+     if(elem.requestFullscreen)void elem.requestFullscreen().catch(()=>setNotice('画面いっぱいの表示でプレイ中。全画面ボタンで再試行できます。'));
+   }
  };
+ const leaveFullscreen=()=>{setFocus(false);if(document.fullscreenElement)void document.exitFullscreen().catch(()=>{});};
+ useEffect(()=>{
+   const change=()=>{if(!document.fullscreenElement)setFocus(false);};
+   document.addEventListener('fullscreenchange',change);
+   return()=>document.removeEventListener('fullscreenchange',change);
+ },[]);
  useEffect(()=>{
    const cv=canvas.current,host=stageDiv.current;if(!cv||!host)return;
    let arena:PerspectiveStage;
-   try{arena=new PerspectiveStage(cv);stage.current=arena;arena.setView(viewRef.current);
-     arena.setSize(host.clientWidth,host.clientHeight);
-   }catch(err){setRendererError(`3D表示を開始できません: ${String(err)}。WebGL対応ブラウザをお試しください。`);return;}
+   try{arena=new PerspectiveStage(cv);stage.current=arena;arena.setView(viewRef.current);arena.setSize(host.clientWidth,host.clientHeight);}
+   catch(err){setRendererError('3D表示を開始できません。WebGL対応ブラウザで開いてください。 '+String(err));return;}
    const resize=new ResizeObserver(()=>arena.setSize(host.clientWidth,host.clientHeight));resize.observe(host);
-   let raf=0,last=performance.now(),accumulator=0,elapsed=0;
+   let raf=0,last=performance.now(),accumulator=0,elapsed=0,lastUI=0,frames=0,fpsAt=last;
    const frame=(now:number)=>{
-     const dt=clamp((now-last)/1000,0,.06);last=now;elapsed+=dt;accumulator+=dt;
-     const seat=modeRef.current==='online'?Math.max(0,seatRef.current):0;
-     const raw=pressed.current,t=touch.current,c=motion.current;
-     const k:MoveInput={left:!!(raw.KeyA||raw.ArrowLeft||t.left||c.left),right:!!(raw.KeyD||raw.ArrowRight||t.right||c.right),
-       up:!!(raw.KeyW||raw.ArrowUp||t.up||c.up),down:!!(raw.KeyS||raw.ArrowDown||t.down||c.down),
-       dash:!!(raw.ShiftLeft||raw.ShiftRight||t.dash||c.dash),hit:false,lob:false,smash:false,serve:false};
-     // Retain queued taps on high-refresh-rate displays until a physics step is due.
-     const guest=modeRef.current==='online'&&seatRef.current>0&&onlineReady.current;
-     const action=guest||accumulator>=1/60?actions.current.shift():undefined;
-     if(action)k[action]=true;
-     // Guest players run their own smooth movement and send position + strike events to the host.
-     if(guest&&onlineStarted.current){
-       const p=game.current.players[seat];if(p)moveAthlete(p,seat,k,dt);
-       if(now-lastInput.current>42||action){
-         send({type:'d_input',x:encodeX(p.x),y:encodeZ(p.z),swing:!!(k.hit||k.lob||k.smash),lob:k.lob,smash:k.smash,serve:k.serve,dash:k.dash});
-         lastInput.current=now;
-       }
-     }else if(modeRef.current!=='online'||seatRef.current===0&&onlineReady.current&&onlineStarted.current){
-       // Fixed 60-Hz physics, independent of monitor refresh rate.
-       let simulated=0;
-       while(accumulator>=1/60&&simulated<4){
-         const inputs=Array.from({length:4},()=>({...NO_INPUT}));inputs[seat]={...k};
-         if(modeRef.current==='online'){
-           for(const [num,remote] of Object.entries(remoteActions.current))inputs[Number(num)]={...remote};
-         }
-         advanceWorld(game.current,inputs,1/60,modeRef.current==='boss'?3:modeRef.current==='online'?0:modeRef.current==='practice'?2:2);
-         remoteActions.current={};k.hit=false;k.lob=false;k.smash=false;k.serve=false;
-         accumulator-=1/60;simulated++;
-       }
-       if(accumulator>1/10)accumulator=0;
-       if(modeRef.current==='online'&&now-lastSnapshot.current>50){
-         send({type:'d_snapshot',world:game.current});lastSnapshot.current=now;
-       }
-     }else{
+     const dt=clamp((now-last)/1000,0,.06);last=now;elapsed+=dt;accumulator+=dt;frames++;
+     const online=isOnline(modeRef.current),guest=online&&seatRef.current>0,me=online?Math.max(0,seatRef.current):0;
+     const raw=pressed.current,t=touch.current,c=now-motionAt.current<250?motion.current:ZERO;
+     const k:MoveInput={...NO_INPUT,left:!!(raw.KeyA||raw.ArrowLeft||t.left||c.left),right:!!(raw.KeyD||raw.ArrowRight||t.right||c.right),
+       up:!!(raw.KeyW||raw.ArrowUp||t.up||c.up),down:!!(raw.KeyS||raw.ArrowDown||t.down||c.down),dash:!!(raw.ShiftLeft||raw.ShiftRight||t.dash||c.dash)};
+     while(actions.current.length&&now-actions.current[0].at>250)actions.current.shift();
+     const action=(guest||accumulator>=1/60)?actions.current.shift():undefined;
+     if(action){k[action.key]=true;k.aim=action.aim;k.power=action.power;}
+     const stale=guest&&now-receivedAt.current>1200;
+     if(guest&&startedRef.current&&!stale){
+       moveAthlete(game.current.players[me],me,k,dt);
+       if(action){game.current.players[me].swing=.25;actionId.current++;}
+       if(now-lastInput.current>=33||action){send({type:'t_input',epoch:epoch.current,input:{...k,actionId:actionId.current}});lastInput.current=now;}
        accumulator=0;
-     }
-     // Camera updates every frame; a dash has both a faster athlete and a faster run cycle.
-     arena.frame(game.current,seat,dt,elapsed);
-     if(now-lastUi.current>140){
-       const signature=stamp(game.current);
-       if(signature!==lastStamp.current){lastStamp.current=signature;publish();}
-       lastUi.current=now;
-     }
+     }else if(!online||(me===0&&startedRef.current)){
+       let steps=0;
+       while(accumulator>=1/60&&steps++<4){
+         const inputs=Array.from({length:4},()=>({...NO_INPUT}));inputs[me]={...k};
+         if(online)for(const [i,r] of Object.entries(remote.current)){
+           if(now-r.at<300)inputs[Number(i)]={...r.input};
+         }
+         advanceWorld(game.current,inputs,1/60,online?0:modeRef.current==='boss'?3:2);
+         for(const r of Object.values(remote.current)){r.input.hit=false;r.input.lob=false;r.input.smash=false;r.input.serve=false;}
+         k.hit=false;k.lob=false;k.smash=false;k.serve=false;accumulator-=1/60;
+       }
+       if(accumulator>.1)accumulator=0;
+       if(online&&now-lastSnapshot.current>=33){send({type:'t_snapshot',epoch:epoch.current,world:game.current});lastSnapshot.current=now;}
+     }else accumulator=0;
+     renderWorld.current=guest?smoothWorld(renderWorld.current,game.current,dt,me,now-receivedAt.current):game.current;
+     arena.frame(renderWorld.current,me,dt,elapsed);
+     if(now-lastUI>120){publish();setNetworkStale(stale);lastUI=now;}
+     if(now-fpsAt>1000){setFps(Math.round(frames*1000/(now-fpsAt)));fpsAt=now;frames=0;}
      raf=requestAnimationFrame(frame);
    };
    raf=requestAnimationFrame(frame);
-   return()=>{cancelAnimationFrame(raf);resize.disconnect();arena.dispose();if(stage.current===arena)stage.current=null;};
+   return()=>{cancelAnimationFrame(raf);resize.disconnect();arena.dispose();stage.current=null;};
  },[]);
  useEffect(()=>{
    const down=(e:KeyboardEvent)=>{
      if((e.target as HTMLElement)?.matches('input,textarea,select')||e.ctrlKey||e.metaKey||e.altKey)return;
      if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
-     if(e.repeat)return;
-     pressed.current[e.code]=true;
-     if(e.code==='Space'||e.code==='KeyQ')queue('hit');
-     if(e.code==='KeyE')queue('lob');
-     if(e.code==='KeyF')queue('smash');
-     if(e.code==='KeyT')queue('serve');
-     if(e.code==='KeyV')changeView(nextView(viewRef.current));
+     pressed.current[e.code]=true;if(e.repeat)return;
+     if(e.code==='Space'||e.code==='KeyQ')queue('hit');if(e.code==='KeyE')queue('lob');if(e.code==='KeyF')queue('smash');if(e.code==='KeyT')queue('serve');
    };
    const up=(e:KeyboardEvent)=>{pressed.current[e.code]=false;};
-   const blur=()=>{pressed.current={};touch.current={};};
-   window.addEventListener('keydown',down);window.addEventListener('keyup',up);window.addEventListener('blur',blur);
-   return()=>{window.removeEventListener('keydown',down);window.removeEventListener('keyup',up);window.removeEventListener('blur',blur);};
- },[changeView]);
- useEffect(()=>()=>{ws.current?.close();},[]);
+   const blur=()=>{pressed.current={};touch.current={};motion.current=ZERO;actions.current=[];};
+   window.addEventListener('keydown',down);window.addEventListener('keyup',up);window.addEventListener('blur',blur);document.addEventListener('visibilitychange',blur);
+   return()=>{window.removeEventListener('keydown',down);window.removeEventListener('keyup',up);window.removeEventListener('blur',blur);document.removeEventListener('visibilitychange',blur);};
+ },[]);
+ useEffect(()=>()=>{socket.current?.close();},[]);
  const updateCamera=(keys:MotionKeys)=>{
-   const prev=motion.current;
-   if(keys.lob&&!prev.lob)queue(game.current.phase==='ready'?'serve':'lob');
-   else if(keys.hit&&!prev.hit)queue(keys.jump?'smash':'hit');
-   motion.current=keys;
+   const prev=motion.current,newEvent=keys.swingId?keys.swingId!==cameraEvent.current:(keys.hit&&!prev.hit)||(keys.lob&&!prev.lob);
+   if(newEvent&&(keys.hit||keys.lob)){
+     cameraEvent.current=keys.swingId??0;
+     const key=game.current.phase==='ready'?'serve':keys.lob?'lob':keys.jump?'smash':'hit';
+     queue(key,keys.aim,keys.power);
+   }
+   if(!keys.capturedAt)cameraEvent.current=0;
+   motion.current=keys;motionAt.current=performance.now();
  };
  const downMove=(code:string)=>(e:PointerEvent<HTMLButtonElement>)=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);touch.current[code]=true;};
- const upMove=(code:string)=>(e:PointerEvent<HTMLButtonElement>)=>{e.preventDefault();touch.current[code]=false;};
- const statusLabel=ui.phase==='finished'?`${ui.winner===0?'レッド':'ブルー'} 勝利！`:({ready:'サーブ待ち',toss:'トス中',rally:'ラリー中',point:'ポイント確定',finished:'試合終了'} as const)[ui.phase];
- const atWaiting=mode==='online'&&!onlineStarted.current;
- return (
-   <div className="tennis-3d-page">
-     <header className="tennis-3d-header">
-       <div className="tennis-3d-brand"><span className="tennis-3d-logo">🎾</span><div><h1>REAL TENNIS 3D</h1><p>写真のコートから始まる、走って打つテニス</p></div></div>
-       <nav className="tennis-3d-topnav" aria-label="ゲーム選択">
-         <button className="tennis-3d-nav-active">✨ 新しい3Dテニス</button>
-         <button onClick={onClassic}>従来のゲーム</button>
-         <button onClick={onLegacyDoubles}>従来のオンラインダブルス</button>
-       </nav>
-     </header>
-     <section className="tennis-3d-modes" aria-label="対戦モード">
-       <button className={mode==='single'?'chosen':''} onClick={()=>chooseMode('single')}><span>🎾</span><b>シングルス</b><small>CPUと1対1</small></button>
-       <button className={mode==='practice'?'chosen':''} onClick={()=>chooseMode('practice')}><span>👥</span><b>3Dダブルス練習</b><small>CPUと2対2</small></button>
-       <button className={mode==='boss'?'chosen':''} onClick={()=>chooseMode('boss')}><span>👑</span><b>伝説級ボス</b><small>超高速CPU</small></button>
-       <button className={mode==='online'?'chosen':''} onClick={()=>chooseMode('online')}><span>🌐</span><b>オンライン4人</b><small>2対2・別端末</small></button>
-     </section>
-     {mode==='online'&&<section className="tennis-3d-room" aria-label="オンラインロビー">
-       <label>共通の部屋コード<input maxLength={24} disabled={netStatus!=='off'} value={room} onChange={e=>setRoom(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g,''))}/></label>
-       <button onClick={connect} disabled={netStatus==='connecting'||netStatus==='waiting'||netStatus==='ready'}>🔗 ルームに参加</button>
-       <button onClick={copyInvite}>🔗 {copied?'コピーしました':'招待リンクをコピー'}</button>
-       <button onClick={disconnect} disabled={netStatus==='off'}>退出</button>
-       <div className="tennis-3d-roster">接続 {roster.length}/4 — {Array.from({length:4},(_,i)=><span className={roster.includes(i)?'in':''} key={i}>{i+1}P {roster.includes(i)?'●':'○'}</span>)}</div>
-       <button className="tennis-3d-start" disabled={seat!==0||netStatus!=='ready'} onClick={startOnline}>▶ ホストが試合開始</button>
-       <small>全員が同じ公開URLへアクセスしてください。4人集まると開始できます。</small>
-     </section>}
-     <main ref={workspace} className={`tennis-3d-workspace ${showCamera?'tennis-3d-with-camera':''} ${focus?'is-focused':''}`}>
-       <div className="tennis-3d-play-column">
-         <div className="tennis-3d-score">
-           <div className="tennis-3d-team"><span className="team-flag red"/> <div><strong>RED {mode==='single'?'1P':'1P + 3P'}</strong><small>{seat===0?'あなた':'レッドチーム'}</small></div><b>{ui.score[0]}</b></div>
-           <div className="tennis-3d-center"><span>{statusLabel}</span><strong>VS</strong><small>ラリー {ui.rally} / 最長 {ui.best}</small></div>
-           <div className="tennis-3d-team blue"><b>{ui.score[1]}</b><div><strong>BLUE {mode==='single'?'CPU':'2P + 4P'}</strong><small>{seat===1||seat===3?'あなた':'対戦チーム'}</small></div><span className="team-flag blue"/></div>
-         </div>
-         <div className="tennis-3d-scene" ref={stageDiv} style={view==='photo'?{backgroundImage:'url(/court-reference.png)'}:undefined}>
-           <canvas ref={canvas} className="tennis-3d-canvas" aria-label="3Dテニスコート。WASDまたは矢印で移動、Qで打球、Tでサーブトス。"/>
-           {rendererError&&<div className="tennis-3d-overlay">{rendererError}</div>}
-           <div className="tennis-3d-topline"><span>📍 {VIEW_NAMES[view]}</span><span>{ui.lastShot} ・ {ui.ball.kind==='smash'?'強打':ui.phase==='toss'?'トス中':'リアル球筋'}</span></div>
-           {ui.phase==='finished'&&<div className="tennis-3d-result"><b>🏆 {ui.winner===0?'レッド':'ブルー'} チーム勝利！</b><button onClick={restart}>もう一度遊ぶ</button></div>}
-           {atWaiting&&<div className="tennis-3d-ready-hint"><b>オンラインの準備中</b><p>4人集まったらホストが「試合開始」を押してください。</p></div>}
-         </div>
-         <div className="tennis-3d-message" aria-live="polite"><span>💬 {ui.message}</span><span>⚡ スタミナ <b>{Math.round(ui.players[Math.max(0,seat)].energy)}%</b></span></div>
-         <div className="tennis-3d-camera-select"><strong>🎥 視点を変更</strong><div>{VIEWS.map(v=><button key={v} className={view===v?'active':''} onClick={()=>changeView(v)}>{v==='photo'?'🖼️ 画像':v==='follow'?'🏃 追従':v==='side'?'↔ サイド':v==='overhead'?'⬆ 俯瞰':'🎾 球追跡'}</button>)}</div></div>
-         <div className="tennis-3d-controls">
-           <div className="tennis-3d-pad" aria-label="移動ボタン">
-             <div><button aria-label="前へ" onPointerDown={downMove('up')} onPointerUp={upMove('up')} onPointerCancel={upMove('up')} onLostPointerCapture={()=>{touch.current.up=false;}}>▲</button></div>
-             <div><button aria-label="左へ" onPointerDown={downMove('left')} onPointerUp={upMove('left')} onPointerCancel={upMove('left')} onLostPointerCapture={()=>{touch.current.left=false;}}>◀</button><button aria-label="後ろへ" onPointerDown={downMove('down')} onPointerUp={upMove('down')} onPointerCancel={upMove('down')} onLostPointerCapture={()=>{touch.current.down=false;}}>▼</button><button aria-label="右へ" onPointerDown={downMove('right')} onPointerUp={upMove('right')} onPointerCancel={upMove('right')} onLostPointerCapture={()=>{touch.current.right=false;}}>▶</button></div>
-           </div>
-           <div className="tennis-3d-strikes">
-             <button className="serve" onClick={()=>queue('serve')}>🎾 サーブ（トス）<small>T</small></button>
-             <button className="hit" onClick={()=>queue('hit')}>🏸 打つ！<small>Q / Space</small></button>
-             <button onClick={()=>queue('lob')}>☁ ロブ<small>E</small></button>
-             <button onClick={()=>queue('smash')}>💥 スマッシュ<small>F</small></button>
-             <button className="dash" onPointerDown={downMove('dash')} onPointerUp={upMove('dash')} onPointerCancel={upMove('dash')} onLostPointerCapture={()=>{touch.current.dash=false;}}>⚡ ダッシュ<small>Shift長押し</small></button>
-           </div>
-         </div>
-         <div className="tennis-3d-options"><button onClick={()=>{setShowCamera(v=>!v);}}>{showCamera?'📷 カメラパネルを閉じる':'📷 実際の体の動きでプレー（カメラ）'}</button><button onClick={fullscreen}>⛶ 全画面</button><button onClick={()=>setFocus(v=>!v)}>{focus?'設定を表示':'🖥 大画面に収める'}</button><button onClick={restart}>↺ 試合リセット</button></div>
+ const upMove=(code:string)=>()=>{touch.current[code]=false;};
+ const online=isOnline(mode),single=isSingles(mode),waiting=online&&!started;
+ const phaseLabel={ready:'両手を上げてトス',toss:'腕を振ってサーブ',rally:'ラリー中',point:'ポイント',finished:'試合終了'}[ui.phase];
+ return <div className="tennis-3d-page">
+   <header className="tennis-3d-header"><div className="tennis-3d-brand"><span className="tennis-3d-logo">🎾</span><div><h1>MOTION TENNIS 3D</h1><p>体で動いて、腕で打つ。カジュアル3Dテニス</p></div></div>
+     <nav className="tennis-3d-topnav"><button onClick={onClassic}>従来の2Dテニス</button><button onClick={onLegacyDoubles}>従来の2Dダブルス</button></nav></header>
+   <section className="tennis-3d-modes" aria-label="対戦モード">
+     {([['single','シングルス練習','CPUと1対1'],['practice','ダブルス練習','CPUと2対2'],['online-single','オンライン1対1','2人で対戦'],['online','オンラインダブルス','4人で2対2']] as const).map(([key,title,sub])=><button key={key} className={mode===key?'chosen':''} onClick={()=>chooseMode(key)}><b>{title}</b><small>{sub}</small></button>)}
+   </section>
+   {online&&<section className="tennis-3d-room" aria-label="オンラインロビー">
+     <label>部屋コード<input maxLength={24} disabled={netStatus!=='off'} value={room} onChange={e=>setRoom(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g,''))}/></label>
+     <button disabled={netStatus!=='off'} onClick={connect}>ルームに参加</button><button onClick={copyInvite}>招待リンクをコピー</button><button onClick={disconnect} disabled={netStatus==='off'}>退出</button>
+     <div className="tennis-3d-roster">{roster.length}/{capacity(mode)}人 {roster.map(i=><span className="in" key={i}>{i+1}P {i===seat?'あなた':''}</span>)}</div>
+     <button className="tennis-3d-start" onClick={startOnline} disabled={seat!==0||netStatus!=='ready'||started}>試合開始（ホスト）</button>
+     <small>同じリンク・同じモードで入室。{capacity(mode)}人揃うと開始できます。1Pと3P、2Pと4Pが同じチームです。</small>
+   </section>}
+   <main ref={workspace} className={'tennis-3d-workspace '+(showCamera?'tennis-3d-with-camera ':'')+(focus?'is-focused':'')}>
+     <div className="tennis-3d-play-column">
+       <div className="tennis-3d-score"><div className="tennis-3d-team"><span className="team-flag red"/><strong>{single?'1P':'1P + 3P'}</strong><b>{ui.score[0]}</b></div>
+         <div className="tennis-3d-center"><span>{phaseLabel}</span><strong>VS</strong><small>先に7点・2点差 / ラリー {ui.rally}</small></div>
+         <div className="tennis-3d-team blue"><b>{ui.score[1]}</b><strong>{single?(online?'2P':'CPU'):'2P + 4P'}</strong><span className="team-flag blue"/></div></div>
+       <div className="tennis-3d-scene" ref={stageDiv}><canvas ref={canvas} className="tennis-3d-canvas" aria-label="3Dテニスコート"/>
+         <div className="tennis-3d-topline"><span>{VIEW_NAMES[view]} · {fps} FPS</span><span>{online?'通信往復 '+rtt+' ms':'CPU対戦'} · {cameraActive?'カメラ操作中':'キーボード・タッチ対応'}</span></div>
+         {rendererError&&<div className="tennis-3d-overlay">{rendererError}</div>}
+         {waiting&&<div className="tennis-3d-ready-hint"><b>ルーム待機中</b><p>{capacity(mode)}人で入室し、ホストが開始してください。</p>{focus&&<button onClick={leaveFullscreen}>ロビーに戻る</button>}</div>}
+         {networkStale&&started&&<div className="tennis-3d-ready-hint">ホストの応答待ちです。ホストはゲーム画面を開いたままにしてください。</div>}
+         {ui.phase==='finished'&&<div className="tennis-3d-result"><b>{ui.winner===0?'レッド':'ブルー'}の勝利！</b><button onClick={restart}>もう一度</button></div>}
        </div>
-       {showCamera&&<aside className="tennis-3d-camera-column"><MotionCamera onKeys={updateCamera}/><div className="tennis-3d-camera-tip"><strong>📹 カメラ操作のコツ</strong><p>左右への移動でコートを走り、前後の動きで奥行きを調整。腕の振りで返球、手を上げてサーブトスやロブ。大きく動くとダッシュになります。</p><p>撮影した映像は端末内で処理され、対戦相手へ送られません。</p></div></aside>}
-     </main>
-     {!focus&&<footer className="tennis-3d-help"><p>⌨️ <b>WASD / 矢印</b> 移動 ／ <b>Shift</b> 走る ／ <b>T</b> トス → <b>Q / Space</b> サーブ ／ <b>E</b> ロブ ／ <b>F</b> スマッシュ ／ <b>V</b> 視点切替</p><p>🎯 前に走りながら打つと速いトップスピン、下がりながら打つとスライス、横に走りながら打つと横回転がかかります。ボールの近くでタイミングを合わせて打ってください。</p><p>🖼️ 「画像」視点は添付画像を背景に3D選手・ボールを重ねます。別視点では立体コートを自由な方向から描画します。WebGLが必要です。</p></footer>}
-     {notice&&<div className="tennis-3d-notice" role="status">{notice}</div>}
-   </div>
- );
+       <div className="tennis-3d-message" aria-live="polite"><span>{ui.message}</span><span>サーブ {ui.server+1}P · 強さ {Math.round((motion.current.power??.5)*100)}%</span></div>
+       <div className="tennis-3d-camera-select"><strong>視点</strong>{VIEWS.map(v=><button key={v} className={view===v?'active':''} onClick={()=>changeView(v)}>{VIEW_NAMES[v]}</button>)}</div>
+       <div className="tennis-3d-controls"><div className="tennis-3d-pad"><div>{[['up','▲'],['left','◀'],['down','▼'],['right','▶']].map(([key,label])=><button key={key} aria-label={key} onPointerDown={downMove(key)} onPointerUp={upMove(key)} onPointerCancel={upMove(key)} onLostPointerCapture={upMove(key)}>{label}</button>)}</div></div>
+         <div className="tennis-3d-strikes"><button className="serve" onClick={()=>queue('serve')}>トス <small>T</small></button><button className="hit" onClick={()=>queue('hit')}>打つ <small>Q / Space</small></button><button onClick={()=>queue('lob')}>ロブ <small>E</small></button><button onClick={()=>queue('smash')}>スマッシュ <small>F</small></button></div></div>
+       <div className="tennis-3d-options"><button onClick={()=>setShowCamera(v=>!v)}>{showCamera?'カメラパネルを閉じる':'カメラパネルを開く'}</button><button onClick={focus?leaveFullscreen:enterFullscreen}>{focus?'全画面を終了':'全画面'}</button><button onClick={restart} disabled={online&&seat!==0}>試合リセット</button></div>
+     </div>
+     {showCamera&&<aside className="tennis-3d-camera-column"><MotionCamera onKeys={updateCamera} onStartRequest={enterFullscreen} onActiveChange={active=>{setCameraActive(active);if(!active){motion.current=ZERO;setFocus(false);if(document.fullscreenElement)void document.exitFullscreen().catch(()=>{});}}}/></aside>}
+     <div className="tennis-3d-notice" role="status">{notice}</div>
+   </main>
+   {!focus&&<footer className="tennis-3d-help"><p><b>カメラ操作：</b>肩・腰が入る位置で静止して位置合わせ。左右に体をずらして移動、近づくと前進。両手を上げてトス、片腕を振って打ちます。振る方向で狙い、速さで強さが変わります。</p><p>WASD / 矢印：移動 · Shift：ダッシュ · T：トス · Q / Space：打つ · E：ロブ · F：スマッシュ。映像は端末内で処理し、対戦相手には送りません。</p><p>認識の ms は画像処理の時間です。カメラや通信を含めた実際の遅延とは異なります。簡易認識では左右移動と打球のみ利用できます。</p></footer>}
+ </div>;
 }

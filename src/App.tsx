@@ -6,7 +6,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import MotionCamera from './MotionCamera';
 import DoublesArena from './DoublesArena';
-import PerspectiveTennis from './PerspectiveTennis';
+import PerspectiveGame from './PerspectiveGame';
 import { 
   Volume2, 
   VolumeX, 
@@ -3019,16 +3019,8 @@ function ClassicGame({ onDoubles }: { onDoubles: () => void }) {
 
 
 export default function App() {
-  const [doubles, setDoubles] = useState(() => new URLSearchParams(window.location.search).get('doubles') === '1');
-  const switchToDoubles = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete('room');url.searchParams.set('doubles','1');
-    window.history.replaceState({},'',url.toString());setDoubles(true);
-  };
-  const switchToClassic = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete('doubles');url.searchParams.delete('room');
-    window.history.replaceState({},'',url.toString());setDoubles(false);
-  };
-  return doubles ? <DoublesArena onBack={switchToClassic} /> : <PerspectiveTennis onDoubles={switchToDoubles} />;
+  const [screen,setScreen]=useState<'3d'|'classic'|'doubles'>(()=>new URLSearchParams(location.search).get('doubles')==='1'?'doubles':'3d');
+  return screen==='3d'?<PerspectiveGame onClassic={()=>setScreen('classic')} onLegacyDoubles={()=>setScreen('doubles')}/>:
+    screen==='doubles'?<DoublesArena onBack={()=>setScreen('3d')}/>:
+    <><button className="return-to-3d" onClick={()=>setScreen('3d')}>3Dテニスに戻る</button><ClassicGame onDoubles={()=>setScreen('doubles')}/></>;
 }

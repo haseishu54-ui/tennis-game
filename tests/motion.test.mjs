@@ -55,3 +55,25 @@ test('losing key landmarks does not produce movement',()=>{
   assert.equal(detectMotion(p,1500,s).hit,false);
   assert.equal(detectMotion(p,1500,s).right,false);
 });
+
+test('swing direction and speed are measured, and reversing flips aim',()=>{
+  const sample=(offset,reverse=false)=>{
+    const state=createMotionState();calibrate(state);
+    detectMotion(pose(),1500,state,'high',reverse);
+    return detectMotion(pose({wristX:offset}),1534,state,'high',reverse);
+  };
+  const gentle=sample(.035),fast=sample(.12),backhand=sample(-.12),reverse=sample(.12,true);
+  assert.ok(gentle.hit&&fast.hit);assert.ok(fast.power>gentle.power);
+  assert.ok(fast.aim>0&&backhand.aim<0);assert.equal(reverse.aim,-fast.aim);
+  assert.ok(fast.power<=1&&fast.power>=0);
+});
+
+test('tracking loss and delayed frames cannot replay a swing',()=>{
+  const state=createMotionState();calibrate(state);
+  detectMotion(pose(),1500,state);
+  assert.ok(detectMotion(pose({wristX:.12}),1534,state).hit);
+  const lost=pose();lost[11].visibility=0;
+  assert.equal(detectMotion(lost,1568,state).hit,false);
+  assert.equal(detectMotion(pose({wristX:-.12}),1602,state).hit,false);
+  assert.equal(detectMotion(pose({wristX:.2}),2100,state).hit,false);
+});

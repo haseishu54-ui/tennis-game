@@ -1,5 +1,8 @@
 // Shared room manager (Node WebSocket / Cloudflare Durable Object)
 // Singles preserve the original protocol; doubles use four independent seats.
+import { cleanInput } from './tennisProtocol.ts';
+type RoomKind='singles'|'doubles'|'3d-singles'|'3d-doubles';
+const capacity=(kind:RoomKind)=>kind==='doubles'||kind==='3d-doubles'?4:2;
 export type Seat = 0 | 1 | 2 | 3;
 export interface Conn {
   send(data: string): void;
@@ -15,7 +18,9 @@ interface PlayerConfig { style: unknown; ev: unknown; }
 interface RoomClient { conn: Conn; playerIndex: Seat; }
 interface RoomState {
   id: string;
-  matchType: 'singles' | 'doubles';
+  matchType: RoomKind;
+  started:boolean;
+  epoch:number;
   clients: RoomClient[];
   configs: (PlayerConfig | undefined)[];
 }
@@ -36,7 +41,7 @@ export class RoomHub {
     for (const c of room.clients) if (c.conn !== from) this.sendTo(c.conn,payload);
   }
   private roster(room: RoomState) {
-    return { playersCount:room.clients.length, capacity: room.matchType === 'doubles' ? 4 : 2,
+    return { playersCount:room.clients.length, capacity: capacity(room.matchType),
       playerIndices:room.clients.map(c=>c.playerIndex), matchType:room.matchType };
   }
   onMessage(conn: Conn, raw: string, forcedRoomId?: string) {
@@ -44,15 +49,16 @@ export class RoomHub {
       if (raw.length > 100000) return;
       const msg = JSON.parse(raw);
       if (!msg || typeof msg.type !== 'string') return;
+      if(msg.type==='ping'){this.sendTo(conn,{type:'pong',at:msg.at});return;}
       if (msg.type === 'join') {
         if (conn.roomId) return;
         const id = forcedRoomId || sanitizeRoomId(msg.roomId);
         if (!id) return this.sendTo(conn,{type:'error',message:'部屋コードが正しくありません'});
-        const desired: 'singles'|'doubles' = msg.matchType === 'doubles' ? 'doubles' : 'singles';
+        const desired:RoomKind = ['doubles','3d-singles','3d-doubles'].includes(msg.matchType)?msg.matchType:'singles';
         let room=this.rooms.get(id);
-        if (!room) { room={id,matchType:desired,clients:[],configs:[]};this.rooms.set(id,room); }
-        if (room.matchType !== desired) return this.sendTo(conn,{type:'error',message:'シングルスとダブルスの部屋は共用できません'});
-        const cap=desired==='doubles'?4:2;
+        if (!room) { room={id,matchType:desired,clients:[],configs:[],started:false,epoch:0};this.rooms.set(id,room); }
+        if (room.matchType !== desired) return this.sendTo(conn,{type:'error',message:'部屋の対戦モードが異なります。同じモードを選んでください'});
+        const cap=capacity(desired);
         if (room.clients.length>=cap) return this.sendTo(conn,{type:'error',message:`部屋が満員です（定員${cap}名）`});
         const used=new Set(room.clients.map(c=>c.playerIndex));
         const idx=[0,1,2,3].find(i=>i<cap && !used.has(i as Seat)) as Seat;
@@ -66,6 +72,23 @@ export class RoomHub {
       const room=this.rooms.get(conn.roomId);
       if (!room) return;
       const seat=conn.playerIndex;
+      if(room.matchType.startsWith('3d-')){
+        if(msg.type==='t_start'&&seat===0&&room.clients.length===capacity(room.matchType)){
+          room.started=true;room.epoch++;
+          for(const c of room.clients)this.sendTo(c.conn,{type:'t_start',epoch:room.epoch});
+        }else if(msg.type==='t_reset'&&seat===0){
+          room.started=false;
+          for(const c of room.clients)this.sendTo(c.conn,{type:'t_reset'});
+        }else if(room.started&&msg.epoch===room.epoch){
+          if(msg.type==='t_input'&&seat!==0){
+            const host=room.clients.find(c=>c.playerIndex===0);
+            if(host)this.sendTo(host.conn,{type:'t_input',seat,input:cleanInput(msg.input),epoch:room.epoch});
+          }else if(msg.type==='t_snapshot'&&seat===0){
+            this.sendOthers(room,conn,{type:'t_snapshot',world:msg.world,epoch:room.epoch});
+          }
+        }
+        return;
+      }
       if (msg.type==='config' && room.matchType==='singles') {
         room.configs[seat]={style:msg.style,ev:msg.ev};
         this.sendOthers(room,conn,{type:'config',playerIndex:seat,style:msg.style,ev:msg.ev});
@@ -99,6 +122,7 @@ export class RoomHub {
     const room=this.rooms.get(conn.roomId);
     if(!room)return;
     room.clients=room.clients.filter(c=>c.conn!==conn);
+    room.started=false;
     room.configs[conn.playerIndex ?? 0]=undefined;
     if (!room.clients.length) { this.rooms.delete(conn.roomId);return; }
     this.sendOthers(room,conn,{type:'player_left',leftPlayerIndex:conn.playerIndex,...this.roster(room)});

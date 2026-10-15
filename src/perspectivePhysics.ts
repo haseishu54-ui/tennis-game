@@ -2,11 +2,13 @@
  * Runs with a fixed timestep. No DOM/Three.js dependency, so physics is independently testable. */
 export type Side = 0 | 1;
 export type GamePhase = 'ready'|'toss'|'rally'|'point'|'finished';
-export type MatchKind = 'single'|'practice'|'boss'|'online';
+export type MatchKind = 'single'|'practice'|'boss'|'online'|'online-single';
+export const isSingles=(mode:MatchKind)=>mode==='single'||mode==='online-single';
+export const isOnline=(mode:MatchKind)=>mode==='online'||mode==='online-single';
 export type ShotKind = 'serve'|'flat'|'topspin'|'slice'|'lob'|'smash';
-export type MoveInput = { left:boolean;right:boolean;up:boolean;down:boolean;dash:boolean;hit:boolean;lob:boolean;smash:boolean;serve:boolean };
+export type MoveInput = { left:boolean;right:boolean;up:boolean;down:boolean;dash:boolean;hit:boolean;lob:boolean;smash:boolean;serve:boolean;aim?:number;power?:number };
 export const NO_INPUT:MoveInput={left:false,right:false,up:false,down:false,dash:false,hit:false,lob:false,smash:false,serve:false};
-export type Athlete={x:number;z:number;vx:number;vz:number;energy:number;swing:number;cool:number;toss:number;moving:number};
+export type Athlete={x:number;z:number;vx:number;vz:number;energy:number;swing:number;cool:number;toss:number;moving:number;shotWindow:number;pendingShot?:ShotKind;aim?:number;power?:number};
 export type ShotBall={x:number;y:number;z:number;vx:number;vy:number;vz:number;sideSpin:number;topSpin:number;lastTeam:Side;bounces:number;live:boolean;power:boolean;kind:ShotKind};
 export type TennisWorld={phase:GamePhase;mode:MatchKind;players:Athlete[];ball:ShotBall;score:[number,number];serveTeam:Side;server:number;timer:number;winner:number;rally:number;best:number;message:string;seq:number;faults:number;lastShot:string};
 export const HALF_WIDTH=5.49;
@@ -17,7 +19,7 @@ export const GRAVITY=12.3;
 export const SPAWN=[{x:-2.1,z:9.9},{x:2.1,z:-9.9},{x:2.1,z:5.6},{x:-2.1,z:-5.6}];
 export const teamOf=(seat:number):Side=>(seat%2) as Side;
 export const clamp=(n:number,min:number,max:number)=>Math.max(min,Math.min(max,n));
-export const makePlayer=(i:number):Athlete=>({...SPAWN[i],vx:0,vz:0,energy:100,swing:0,cool:0,toss:0,moving:0});
+export const makePlayer=(i:number):Athlete=>({...SPAWN[i],vx:0,vz:0,energy:100,swing:0,cool:0,toss:0,moving:0,shotWindow:0});
 const freshBall=(side:Side,players:Athlete[],server:number):ShotBall=>({
  x:players[server].x+.38,y:1.10,z:players[server].z,vx:0,vy:0,vz:0,sideSpin:0,topSpin:0,lastTeam:side,bounces:0,live:false,power:false,kind:'serve'
 });
@@ -28,7 +30,13 @@ export function makeWorld(mode:MatchKind='single'):TennisWorld {
 export function resetPoint(w:TennisWorld) {
  w.players.forEach((p,i)=>Object.assign(p,makePlayer(i)));
  const side=w.serveTeam;
- w.server=side===0?0:1;
+ w.server=isSingles(w.mode)?side:side+2*(Math.floor((w.score[0]+w.score[1])/2)%2);
+ // Doubles partners take turns serving; the server starts on the baseline.
+ if(w.server>=2){
+   const partner=w.server-2;
+   const rear=w.players[partner].z;
+   w.players[partner].z=w.players[w.server].z;w.players[w.server].z=rear;
+ }
  w.ball=freshBall(side,w.players,w.server);
  w.phase='ready';w.faults=0;w.timer=0;w.rally=0;
  w.message=`${side===0?'レッド':'ブルー'}のサーブ：トス → スイング`;
@@ -48,7 +56,7 @@ export function moveAthlete(p:Athlete,i:number,k:MoveInput,dt:number){
  const n=Math.hypot(dx,dz)||1;
  const wantsDash=k.dash && p.energy>4;
  const speed=wantsDash?12:6.5;
- const targetVX=dx/n*speed,targetVZ=dz/n*speed*(teamOf(i)===0?1:-1);
+ const targetVX=dx/n*speed*(teamOf(i)===0?1:-1),targetVZ=dz/n*speed*(teamOf(i)===0?1:-1);
  const smooth=Math.min(1,dt*18);
  p.vx+=(targetVX-p.vx)*smooth;
  p.vz+=(targetVZ-p.vz)*smooth;
@@ -59,6 +67,7 @@ export function moveAthlete(p:Athlete,i:number,k:MoveInput,dt:number){
  p.cool=Math.max(0,p.cool-dt);
  p.swing=Math.max(0,p.swing-dt);
  p.toss=Math.max(0,p.toss-dt);
+ p.shotWindow=Math.max(0,p.shotWindow-dt);
 }
 export function tossServe(w:TennisWorld,seat:number){
  if(w.phase!=='ready'||seat!==w.server)return false;
@@ -71,7 +80,7 @@ export function tossServe(w:TennisWorld,seat:number){
 }
 function aimFor(w:TennisWorld,i:number,kind:ShotKind){
  const p=w.players[i],side=teamOf(i),opp=side===0?-1:1;
- const foes=w.players.filter((_,idx)=>teamOf(idx)!==side&&(w.mode!=='single'||idx<2));
+ const foes=w.players.filter((_,idx)=>teamOf(idx)!==side&&(!isSingles(w.mode)||idx<2));
  const mean=foes.reduce((s,e)=>s+e.x,0)/Math.max(1,foes.length);
  const lateral=clamp(p.vx/12,-1,1);
  // Aim *away* from opponents, with a meaningful running forehand/backhand angle.
@@ -79,7 +88,7 @@ function aimFor(w:TennisWorld,i:number,kind:ShotKind){
  const z=opp*(kind==='lob'?9.7:kind==='slice'?5.8:kind==='smash'?8.1:kind==='serve'?5.4:8.2);
  return {x,z};
 }
-export function strike(w:TennisWorld,seat:number,kind:ShotKind='flat') {
+export function strike(w:TennisWorld,seat:number,kind:ShotKind='flat',control?:Pick<MoveInput,'aim'|'power'>) {
  const p=w.players[seat],b=w.ball,side=teamOf(seat);
  if(!p||p.cool>0||w.phase==='point'||w.phase==='finished')return false;
  if(w.phase==='ready')return tossServe(w,seat);
@@ -88,15 +97,17 @@ export function strike(w:TennisWorld,seat:number,kind:ShotKind='flat') {
    kind='serve';
  }else if(w.phase==='rally'){
    if(b.lastTeam===side)return false;
-   const reach=1.85+Math.min(.62,p.moving*.45);
+   const reach=(control?.power!==undefined?2.25:1.85)+Math.min(.62,p.moving*.45);
    if(Math.hypot(b.x-p.x,b.z-p.z)>reach||b.y<.15||b.y>3.18)return false;
  }else return false;
  const target=aimFor(w,seat,kind);
+ if(Number.isFinite(control?.aim))target.x=clamp(control!.aim!,-1,1)*3.8*(side===0?1:-1);
  const distance=Math.hypot(target.x-b.x,target.z-b.z);
  const momentum=clamp((teamOf(seat)===0?-p.vz:p.vz)/12,-1,1);
  const duration=kind==='lob'?1.32:kind==='slice'?.98:kind==='smash'?.54:kind==='serve'?.73:.79;
  // Running into the stroke speeds it up; moving back gives a safer, slower arc.
- const t=clamp(duration - momentum*.085 - Math.min(.07,p.moving*.045),.44,1.6);
+ const power=Number.isFinite(control?.power)?clamp(control!.power!,0,1):.5;
+ const t=clamp(duration + (.5-power)*.27 - momentum*.085 - Math.min(.07,p.moving*.045),.50,1.6);
  const yStart=Math.max(.70,b.y);
  b.vx=(target.x-b.x)/t;
  b.vz=(target.z-b.z)/t;
@@ -147,7 +158,7 @@ function stepBall(w:TennisWorld,dt:number){
 export function advanceWorld(w:TennisWorld,inputs:MoveInput[],dt:number,botStrength=0){
  dt=clamp(dt,0,1/30);
  if(w.phase==='finished')return;
- const act=w.mode==='single'?2:4;
+ const act=isSingles(w.mode)?2:4;
  for(let i=0;i<act;i++)moveAthlete(w.players[i],i,inputs[i]||NO_INPUT,dt);
  if(w.phase==='point'){
    w.timer-=dt;if(w.timer<=0)resetPoint(w);
@@ -167,8 +178,10 @@ export function advanceWorld(w:TennisWorld,inputs:MoveInput[],dt:number,botStren
        if(p.vz*(teamOf(i)===0?-1:1)>2)kind='topspin';
        else if(p.vz*(teamOf(i)===0?-1:1)<-2)kind='slice';
      }
-     strike(w,i,kind);
+     const p=w.players[i];p.pendingShot=kind;p.aim=k.aim;p.power=k.power;p.shotWindow=.16;
    }
+   const p=w.players[i];
+   if(p.pendingShot&&p.shotWindow>0&&strike(w,i,p.pendingShot,{aim:p.aim,power:p.power})){p.shotWindow=0;p.pendingShot=undefined;}
  }
  stepBall(w,dt);
  // In offline mode, smarter CPU players independently track interception points.
@@ -192,7 +205,7 @@ export function advanceWorld(w:TennisWorld,inputs:MoveInput[],dt:number,botStren
        const forward=clamp((Math.abs(p.z-b.z))/Math.max(4,Math.abs(b.vz)),.07,.52);
        tx=clamp(b.x+b.vx*forward,-4.9,4.9);
        tz=clamp(b.z+b.vz*forward,side===0?.9:-11.2,side===0?11.2:-.9);
-       if(w.mode!=='single' && i>=2){
+       if(!isSingles(w.mode) && i>=2){
          const mate=w.players[i===2?0:1];
          if(Math.abs(mate.x-tx)<1.5)tx=clamp(tx+(tx>mate.x?1.4:-1.4),-4.9,4.9);
        }
