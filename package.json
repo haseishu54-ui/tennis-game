@@ -1,45 +1,14 @@
 {
-  "name": "futari-de-tennis",
+  "name": "motion-tennis-3d",
+  "version": "3.0.0",
   "private": true,
-  "version": "2.1.0",
-  "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build",
-    "start": "tsx server.ts",
-    "start:prod": "npm run build && cross-env NODE_ENV=production tsx server.ts",
-    "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit && tsc -p tsconfig.worker.json --noEmit",
-    "cf:dev": "wrangler dev",
-    "cf:deploy": "wrangler deploy",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs"
-  },
-  "dependencies": {
-    "@tailwindcss/vite": "^4.3.3",
-    "@vitejs/plugin-react": "^6.1.1",
-    "cross-env": "^7.0.3",
-    "express": "^4.21.2",
-    "lucide-react": "^0.546.0",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "three": "0.180.0",
-    "tsx": "^4.21.0",
-    "vite": "^8.3.0",
-    "ws": "^8.18.0"
+    "build": "node build.cjs",
+    "dev": "npm run build && wrangler dev",
+    "cf:dev": "npm run dev",
+    "cf:deploy": "wrangler deploy"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20261006.1",
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.14.0",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@types/three": "0.180.0",
-    "@types/ws": "^8.5.13",
-    "autoprefixer": "^10.4.21",
-    "esbuild": "0.28.0",
-    "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2",
     "wrangler": "^4.0.0"
   }
 }
